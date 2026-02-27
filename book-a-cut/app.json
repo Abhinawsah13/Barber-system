@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Book-A-Cut",
+    "slug": "book-a-cut",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/barber.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/barber.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/barber.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.bookacut.app"
+    },
+    "web": {
+      "favicon": "./assets/barber.png"
+    }
+  }
+}
