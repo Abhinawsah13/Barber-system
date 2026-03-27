@@ -240,7 +240,7 @@ export default function RateBarberScreen({ navigation, route }) {
 
                     <TouchableOpacity
                         style={styles.primaryBtn}
-                        onPress={() => navigation.navigate('MyBookings')}
+                        onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Home' }] })}
                         activeOpacity={0.85}
                     >
                         <Text style={styles.primaryBtnText}>← Back to My Bookings</Text>
@@ -272,7 +272,7 @@ export default function RateBarberScreen({ navigation, route }) {
                     {/* barber info strip — data comes from booking */}
                     <View style={[styles.barberStrip, { backgroundColor: '#fff' }]}>
                         <Image
-                            source={{ uri: barberImage || `https://i.pravatar.cc/150?u=${barberId}` }}
+                            source={barberImage ? { uri: barberImage } : require('../../../assets/barber.png')}
                             style={styles.avatar}
                         />
                         <View style={{ flex: 1 }}>

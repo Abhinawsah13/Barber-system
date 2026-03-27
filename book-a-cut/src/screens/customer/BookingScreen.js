@@ -180,6 +180,15 @@ export default function BookingScreen({ navigation, route }) {
             return;
         }
 
+        const now = new Date();
+        // e.g. "Sun Mar 24 2024" + " " + "10:00 AM" -> "Sun Mar 24 2024 10:00 AM"
+        const selectedDateTime = new Date(`${selectedDate.fullDate.toDateString()} ${selectedTime}`);
+
+        if (selectedDateTime <= now) {
+            Alert.alert("Invalid Time", "Please select a future time.");
+            return;
+        }
+
         // Navigate to BookingConfirmation which will call the API
         // selectedService._id is now a real MongoDB ObjectId from the API
         navigation.navigate('BookingConfirmation', {
@@ -306,7 +315,12 @@ export default function BookingScreen({ navigation, route }) {
                         ) : (
                             availableSlots.map((slot, i) => {
                                 const isSelected = slot.time === selectedTime;
-                                const isBooked = !slot.available;
+
+                                const now = new Date();
+                                const slotDateTime = new Date(`${selectedDate.fullDate.toDateString()} ${slot.time}`);
+                                const isPast = slotDateTime <= now;
+
+                                const isBooked = !slot.available || isPast;
                                 return (
                                     <TouchableOpacity
                                         key={i}

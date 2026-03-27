@@ -1,26 +1,15 @@
 // screens/customer/BookingConfirmationScreen.js
-// Final confirmation screen before the booking is actually created
-// Shows a summary of what the customer picked: barber, service, date, time, price
-// When they press "Confirm Booking", it sends the request to the backend
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-    View,
-    Text,
-    TouchableOpacity,
-    StyleSheet,
-    ScrollView,
-    ActivityIndicator,
-    Alert,
-    Image,
+    View, Text, TouchableOpacity, StyleSheet,
+    ScrollView, ActivityIndicator, Alert, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
-import { createBookingV2 } from '../../services/api';
+import { createBookingV2, initiateKhaltiPayment, initiateEsewaPayment } from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
+import * as Location from 'expo-location';
 
-// Small helper component: one row in the booking details card
-// Keeps the JSX in the main screen cleaner
 function InfoRow({ icon, label, value, theme }) {
     return (
         <View style={styles.infoRow}>
@@ -35,53 +24,262 @@ function InfoRow({ icon, label, value, theme }) {
     );
 }
 
+// ✅ FIX 1: Calculate distance between two GPS points (Haversine formula)
+const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // Earth radius in km
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in km
+};
+
+// ✅ FIX 2: Calculate travel charge — Rs 100 per 5km
+const calculateTravelCharge = (distanceKm) => {
+    return Math.ceil(distanceKm / 5) * 100;
+};
+
 export default function BookingConfirmationScreen({ navigation, route }) {
     const { theme } = useTheme();
 
-    // Unpack everything passed from the previous screen (BookingScreen or DateTimePicker)
     const {
         service,
         barber,
         barberId,
         barberName,
-        date,           // "YYYY-MM-DD" format
-        timeSlot,       // "HH:MM" 24-hour
-        timeSlotISO,    // full ISO string (not used for display, just for the payload)
-        serviceType = 'salon',       // 'salon', 'home', or 'both' — passed from booking screen
-        customerAddress = '',        // address needed for home service
-        notes = '',                  // extra instructions for home visit
+        date,
+        timeSlot,
+        timeSlotISO,
+        serviceType = 'salon',
+        customerAddress = '',
+        notes = '',
     } = route.params || {};
 
+    const barberCoords = barber?.location?.coordinates;
+    const barberLat = barberCoords?.[1] ?? null;
+    const barberLng = barberCoords?.[0] ?? null;
+
     const [loading, setLoading] = useState(false);
+    const [customerLat, setCustomerLat] = useState(null);
+    const [customerLng, setCustomerLng] = useState(null);
+    const [travelCharge, setTravelCharge] = useState(0);
+    const [distanceKm, setDistanceKm] = useState(null);
+    const [paymentLoading, setPaymentLoading] = useState(false);
 
-    // Make the date readable: "24 Feb 2026"
     const displayDate = formatDate(date);
+    const servicePrice = service?.price || 0;
+    const totalPrice = servicePrice + travelCharge;
 
-    // Use barber's actual profile image if available, otherwise use a placeholder
-    const barberProfileImage = barber?.user?.profile_image
-        || `https://i.pravatar.cc/150?u=${barberId}`;
+    const barberProfileImage = barber?.user?.profile_image || null;
+    const finalImageSource = barberProfileImage ? { uri: barberProfileImage } : require('../../../assets/barber.png');
 
-    // Called when the user presses "Confirm Booking"
+    // ✅ FIX 1: Validate booking time is in the future
+    const isTimeValid = () => {
+        if (!date || !timeSlot) return false;
+
+        const now = new Date();
+        const [hours, minutes] = timeSlot.split(':').map(Number);
+        const bookingDateTime = new Date(date);
+        bookingDateTime.setHours(hours, minutes, 0, 0);
+
+        // If today, check time is in the future
+        const today = new Date().toISOString().split('T')[0];
+        if (date === today && bookingDateTime <= now) {
+            return false;
+        }
+        return true;
+    };
+
+    // ✅ FIX 2: Get customer location & calculate travel charge for home service
+    useEffect(() => {
+        if (serviceType === 'home') {
+            getCustomerLocationAndCalculateCharge();
+        }
+    }, [serviceType]);
+
+    const getCustomerLocationAndCalculateCharge = async () => {
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+                const loc = await Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.Balanced,
+                });
+                const cLat = loc.coords.latitude;
+                const cLng = loc.coords.longitude;
+                setCustomerLat(cLat);
+                setCustomerLng(cLng);
+
+                // Calculate travel charge if barber coords are available
+                if (barberLat && barberLng) {
+                    const dist = calculateDistance(cLat, cLng, barberLat, barberLng);
+                    const charge = calculateTravelCharge(dist);
+                    setDistanceKm(dist.toFixed(1));
+                    setTravelCharge(charge);
+                }
+            }
+        } catch (err) {
+            console.warn('Could not get customer location:', err.message);
+        }
+    };
+
+    const handleKhaltiPay = async () => {
+        if (!isTimeValid()) {
+            Alert.alert('Invalid Time', 'This time slot has already passed.');
+            return;
+        }
+
+        setPaymentLoading(true);
+        try {
+            const result = await initiateKhaltiPayment({
+                barberId,
+                serviceId: service?._id,
+                date,
+                timeSlot,
+                serviceType,
+                customerAddress,
+                notes,
+                customerLat: serviceType === 'home' ? customerLat : null,
+                customerLng: serviceType === 'home' ? customerLng : null,
+                travelCharge: serviceType === 'home' ? travelCharge : 0,
+                amount: totalPrice,
+                customerName: 'Customer', // Would come from token or state in a full app
+                customerEmail: '',
+                customerPhone: '',
+            });
+
+            if (result.success) {
+                navigation.navigate('PaymentWebView', {
+                    paymentUrl: result.paymentUrl,
+                    gateway: 'khalti',
+                    pidx: result.pidx,
+                    bookingId: result.bookingId,
+                    amount: totalPrice,
+                    onSuccessRoute: 'BookingSuccess',
+                    successParams: { 
+                        barberId, barberName, barberImage: barber?.user?.profile_image || '',
+                        serviceName: service?.name, date: displayDate, time: timeSlot,
+                        price: totalPrice, serviceType, customerLat, customerLng, barberLat, barberLng,
+                        barberAddress: barber?.location?.address || barber?.location?.city || '',
+                    },
+                });
+            } else {
+                Alert.alert('Error', result.message || 'Could not initiate Khalti payment.');
+            }
+        } catch (e) {
+            Alert.alert('Error', e.message || 'Payment initiation failed.');
+        } finally {
+            setPaymentLoading(false);
+        }
+    };
+
+    const handleEsewaPay = async () => {
+        if (!isTimeValid()) {
+            Alert.alert('Invalid Time', 'This time slot has already passed.');
+            return;
+        }
+
+        setPaymentLoading(true);
+        try {
+            const result = await initiateEsewaPayment({
+                barberId,
+                serviceId: service?._id,
+                date,
+                timeSlot,
+                serviceType,
+                customerAddress,
+                notes,
+                customerLat: serviceType === 'home' ? customerLat : null,
+                customerLng: serviceType === 'home' ? customerLng : null,
+                travelCharge: serviceType === 'home' ? travelCharge : 0,
+                amount: totalPrice,
+            });
+
+            if (result.success) {
+                // eSewa uses form submission, so we pass esewaHtml built using esewaParams
+                const { esewaParams } = result;
+                const esewaHtml = `
+                    <!DOCTYPE html>
+                    <html>
+                    <body onload="document.forms[0].submit()">
+                        <div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">
+                            <h2>Redirecting to eSewa...</h2>
+                        </div>
+                        <form action="${esewaParams.action}" method="POST">
+                            <input type="hidden" name="amount" value="${esewaParams.amount}"/>
+                            <input type="hidden" name="tax_amount" value="${esewaParams.tax_amount}"/>
+                            <input type="hidden" name="total_amount" value="${esewaParams.total_amount}"/>
+                            <input type="hidden" name="transaction_uuid" value="${esewaParams.transaction_uuid}"/>
+                            <input type="hidden" name="product_code" value="${esewaParams.product_code}"/>
+                            <input type="hidden" name="product_service_charge" value="${esewaParams.product_service_charge}"/>
+                            <input type="hidden" name="product_delivery_charge" value="${esewaParams.product_delivery_charge}"/>
+                            <input type="hidden" name="success_url" value="${esewaParams.success_url}"/>
+                            <input type="hidden" name="failure_url" value="${esewaParams.failure_url}"/>
+                            <input type="hidden" name="signed_field_names" value="${esewaParams.signed_field_names}"/>
+                            <input type="hidden" name="signature" value="${esewaParams.signature}"/>
+                        </form>
+                    </body>
+                    </html>
+                `;
+
+                navigation.navigate('PaymentWebView', {
+                    gateway: 'esewa',
+                    bookingId: result.bookingId,
+                    amount: totalPrice,
+                    esewaHtml,
+                    onSuccessRoute: 'BookingSuccess',
+                    successParams: { 
+                        barberId, barberName, barberImage: barber?.user?.profile_image || '',
+                        serviceName: service?.name, date: displayDate, time: timeSlot,
+                        price: totalPrice, serviceType, customerLat, customerLng, barberLat, barberLng,
+                        barberAddress: barber?.location?.address || barber?.location?.city || '',
+                    },
+                });
+            } else {
+                Alert.alert('Error', result.message || 'Could not initiate eSewa payment.');
+            }
+        } catch (e) {
+            Alert.alert('Error', e.message || 'Payment initiation failed.');
+        } finally {
+            setPaymentLoading(false);
+        }
+    };
+
     const handleConfirm = async () => {
+        // ✅ FIX 1: Block past time booking
+        if (!isTimeValid()) {
+            Alert.alert(
+                'Invalid Time',
+                'This time slot has already passed. Please go back and select a future time slot.',
+                [{ text: 'Go Back', onPress: () => navigation.goBack() }]
+            );
+            return;
+        }
+
         setLoading(true);
 
         try {
-            // Build the booking request body to send to the backend
-            // serviceType and customerAddress are passed from the previous screen
             const bookingPayload = {
                 barberId,
                 serviceId: service?._id,
                 date,
                 time_slot: timeSlot,
-                serviceType: serviceType,           // 'salon', 'home', or 'both'
-                customerAddress: customerAddress,   // used when serviceType is 'home'
-                notes: notes,                       // extra notes for home service
+                serviceType,
+                customerAddress,
+                notes,
+                customerLat: serviceType === 'home' ? customerLat : null,
+                customerLng: serviceType === 'home' ? customerLng : null,
+                // ✅ FIX 2: Send travel charge to backend
+                travelCharge: serviceType === 'home' ? travelCharge : 0,
+                totalPrice,
             };
 
             const result = await createBookingV2(bookingPayload);
 
             if (result.success) {
-                // Booking created successfully — go to the success screen
                 navigation.replace('BookingSuccess', {
                     bookingId: result.data?._id,
                     barberId,
@@ -90,18 +288,21 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                     serviceName: service?.name,
                     date: displayDate,
                     time: timeSlot,
-                    price: service?.price,
+                    price: totalPrice,
+                    serviceType,
+                    customerLat,
+                    customerLng,
+                    barberLat,
+                    barberLng,
+                    barberAddress: barber?.location?.address || barber?.location?.city || '',
                 });
             } else {
-                Alert.alert('Booking Failed', result.message || 'Something went wrong. Please try again.');
+                Alert.alert('Booking Failed', result.message || 'Something went wrong.');
             }
-
         } catch (error) {
-            // Show the backend error message so the user knows what went wrong
-            const message = error.message || 'Booking failed. Please try again.';
             Alert.alert(
                 'Booking Failed',
-                message,
+                error.message || 'Booking failed. Please try again.',
                 [
                     { text: 'Try Another Time', onPress: () => navigation.goBack() },
                     { text: 'OK' },
@@ -112,10 +313,11 @@ export default function BookingConfirmationScreen({ navigation, route }) {
         }
     };
 
+    // ✅ FIX 1: Show warning if time already passed
+    const timeWarning = !isTimeValid();
+
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-
-            {/* Header */}
             <View style={[styles.header, { backgroundColor: theme.background }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
@@ -126,9 +328,21 @@ export default function BookingConfirmationScreen({ navigation, route }) {
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
-                {/* Barber info card */}
+                {/* ✅ FIX 1: Past time warning banner */}
+                {timeWarning && (
+                    <View style={styles.warningBox}>
+                        <Text style={styles.warningText}>
+                            ⚠️ This time slot ({timeSlot}) has already passed today. Please go back and select a future time.
+                        </Text>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.warningBtn}>
+                            <Text style={styles.warningBtnText}>Change Time</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Barber card */}
                 <View style={[styles.barberCard, { backgroundColor: theme.card }]}>
-                    <Image source={{ uri: barberProfileImage }} style={styles.barberAvatar} />
+                    <Image source={finalImageSource} style={styles.barberAvatar} />
                     <View style={styles.barberInfo}>
                         <Text style={[styles.barberName, { color: theme.text }]}>
                             {barberName || 'Your Barber'}
@@ -137,55 +351,59 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                             {barber?.rating?.count > 0 ? (
                                 <>
                                     <Text style={{ color: '#FFD700' }}>⭐ </Text>
-                                    <Text style={[styles.barberRating, { color: theme.textMuted, marginBottom: 0 }]}>
+                                    <Text style={[styles.barberRating, { color: theme.textMuted }]}>
                                         {barber.rating.average.toFixed(1)}
                                     </Text>
                                 </>
                             ) : (
-                                <Text style={[styles.barberRating, { color: theme.primary, fontWeight: 'bold', marginBottom: 0 }]}>
+                                <Text style={[styles.barberRating, { color: theme.primary, fontWeight: 'bold' }]}>
                                     New Barber
                                 </Text>
                             )}
-                            <Text style={[styles.barberRating, { color: theme.textMuted, marginBottom: 0 }]}>
-                                {'  ·  '}
-                                {barber?.experience_years || 0} yrs exp
+                            <Text style={[styles.barberRating, { color: theme.textMuted }]}>
+                                {'  ·  '}{barber?.experience_years || 0} yrs exp
                             </Text>
                         </View>
-                        {/* Show services if there are any */}
-                        {barber?.services && barber.services.length > 0 ? (
-                            <Text style={[styles.barberSpec, { color: theme.primary }]}>
-                                {barber.services.slice(0, 3).join(' · ')}
-                            </Text>
-                        ) : null}
                     </View>
                 </View>
 
-                {/* Booking details card */}
+                {/* Booking details */}
                 <View style={[styles.detailCard, { backgroundColor: theme.card }]}>
                     <Text style={[styles.cardTitle, { color: theme.text }]}>Booking Details</Text>
-
                     <InfoRow icon="✂️" label="Service" value={service?.name || '—'} theme={theme} />
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
                     <InfoRow icon="📅" label="Date" value={displayDate} theme={theme} />
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-                    <InfoRow icon="⏰" label="Time" value={timeSlot} theme={theme} />
+                    {/* ✅ FIX 1: Show red time if past */}
+                    <View style={styles.infoRow}>
+                        <View style={[styles.iconWrap, { backgroundColor: theme.primary + '18' }]}>
+                            <Text style={styles.infoIcon}>⏰</Text>
+                        </View>
+                        <View style={styles.infoText}>
+                            <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Time</Text>
+                            <Text style={[styles.infoValue, {
+                                color: timeWarning ? '#ef4444' : theme.text,
+                                fontWeight: timeWarning ? 'bold' : '600'
+                            }]}>
+                                {timeSlot} {timeWarning ? '⚠️ Past time' : ''}
+                            </Text>
+                        </View>
+                    </View>
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-                    <InfoRow
-                        icon="⏱"
-                        label="Duration"
-                        value={`${service?.duration_minutes || 30} minutes`}
-                        theme={theme}
-                    />
-
+                    <InfoRow icon="⏱" label="Duration" value={`${service?.duration_minutes || 30} minutes`} theme={theme} />
                     {serviceType === 'home' && (
                         <>
                             <View style={[styles.divider, { backgroundColor: theme.border }]} />
                             <InfoRow icon="🏠" label="Location" value="Home Visit" theme={theme} />
                             <View style={[styles.divider, { backgroundColor: theme.border }]} />
                             <InfoRow icon="📍" label="Address" value={customerAddress || 'Not provided'} theme={theme} />
+                            {/* ✅ FIX 2: Show distance */}
+                            {distanceKm && (
+                                <>
+                                    <View style={[styles.divider, { backgroundColor: theme.border }]} />
+                                    <InfoRow icon="📏" label="Distance" value={`${distanceKm} km from barber`} theme={theme} />
+                                </>
+                            )}
                             {notes ? (
                                 <>
                                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
@@ -196,29 +414,46 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                     )}
                 </View>
 
-                {/* Price breakdown card */}
+                {/* ✅ FIX 2: Price breakdown with travel charge */}
                 <View style={[styles.priceCard, { backgroundColor: theme.card }]}>
                     <Text style={[styles.cardTitle, { color: theme.text }]}>Price Summary</Text>
 
                     <View style={styles.priceRow}>
                         <Text style={[styles.priceLabel, { color: theme.textLight }]}>{service?.name}</Text>
-                        <Text style={[styles.priceValue, { color: theme.text }]}>Rs {service?.price}</Text>
+                        <Text style={[styles.priceValue, { color: theme.text }]}>Rs {servicePrice}</Text>
                     </View>
 
-                    <View style={styles.priceRow}>
-                        <Text style={[styles.priceLabel, { color: theme.textLight }]}>Service Fee</Text>
-                        <Text style={[styles.priceValue, { color: theme.text }]}>Rs 0</Text>
-                    </View>
+                    {serviceType === 'home' && (
+                        <View style={styles.priceRow}>
+                            <View>
+                                <Text style={[styles.priceLabel, { color: theme.textLight }]}>
+                                    Travel Charge {distanceKm ? `(${distanceKm} km)` : ''}
+                                </Text>
+                                <Text style={{ fontSize: 11, color: theme.textMuted }}>
+                                    Rs 100 per 5 km
+                                </Text>
+                            </View>
+                            <Text style={[styles.priceValue, { color: theme.text }]}>
+                                Rs {travelCharge}
+                            </Text>
+                        </View>
+                    )}
+
+                    {serviceType === 'salon' && (
+                        <View style={styles.priceRow}>
+                            <Text style={[styles.priceLabel, { color: theme.textLight }]}>Service Fee</Text>
+                            <Text style={[styles.priceValue, { color: '#22c55e' }]}>Free</Text>
+                        </View>
+                    )}
 
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
                     <View style={styles.priceRow}>
                         <Text style={[styles.totalLabel, { color: theme.text }]}>Total</Text>
-                        <Text style={[styles.totalValue, { color: theme.primary }]}>Rs {service?.price}</Text>
+                        <Text style={[styles.totalValue, { color: theme.primary }]}>Rs {totalPrice}</Text>
                     </View>
                 </View>
 
-                {/* Note: no upfront payment needed */}
                 <View style={[styles.noteBox, { backgroundColor: theme.primary + '12', borderColor: theme.primary + '30' }]}>
                     <Text style={styles.noteIcon}>{serviceType === 'home' ? '🏠' : '💳'}</Text>
                     <Text style={[styles.noteText, { color: theme.textLight }]}>
@@ -228,222 +463,101 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                     </Text>
                 </View>
 
-                {/* Bottom padding so content isn't hidden behind the sticky button */}
                 <View style={{ height: 120 }} />
-
             </ScrollView>
 
-            {/* Sticky confirm button at the bottom */}
             <View style={[styles.bottomBar, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
+                <Text style={{ textAlign: 'center', color: theme.textLight, marginBottom: 10, fontSize: 13, fontWeight: '600' }}>
+                    Choose Payment Method
+                </Text>
+                
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                    {/* Khalti */}
+                    <TouchableOpacity
+                        style={[styles.payBtn, { backgroundColor: '#5C2D91', opacity: (paymentLoading || loading || timeWarning) ? 0.6 : 1 }]}
+                        onPress={handleKhaltiPay}
+                        disabled={paymentLoading || loading || timeWarning}
+                    >
+                        {paymentLoading ? <ActivityIndicator color="#FFF" size="small" /> :
+                            <Text style={styles.payBtnText}>💜 Khalti</Text>}
+                    </TouchableOpacity>
+
+                    {/* eSewa */}
+                    <TouchableOpacity
+                        style={[styles.payBtn, { backgroundColor: '#60BB46', opacity: (paymentLoading || loading || timeWarning) ? 0.6 : 1 }]}
+                        onPress={handleEsewaPay}
+                        disabled={paymentLoading || loading || timeWarning}
+                    >
+                        {paymentLoading ? <ActivityIndicator color="#FFF" size="small" /> :
+                            <Text style={styles.payBtnText}>💚 eSewa</Text>}
+                    </TouchableOpacity>
+                </View>
+
+                {/* Cash option */}
                 <TouchableOpacity
                     style={[
-                        styles.confirmBtn,
-                        { backgroundColor: loading ? theme.border : theme.primary },
+                        styles.cashBtn, 
+                        { borderColor: theme.border, opacity: (paymentLoading || loading || timeWarning) ? 0.6 : 1 }
                     ]}
                     onPress={handleConfirm}
-                    disabled={loading}
-                    activeOpacity={0.85}
+                    disabled={paymentLoading || loading || timeWarning}
                 >
                     {loading ? (
                         <View style={styles.loadingRow}>
-                            <ActivityIndicator color="#FFF" size="small" />
-                            <Text style={styles.confirmBtnText}>  Booking...</Text>
+                            <ActivityIndicator color={theme.text} size="small" />
+                            <Text style={[styles.cashBtnText, { color: theme.text }]}>   Booking...</Text>
                         </View>
                     ) : (
-                        <Text style={styles.confirmBtnText}>✓  Confirm Booking</Text>
+                        <Text style={[styles.cashBtnText, { color: theme.text }]}>
+                            💵 Pay Cash at Salon
+                        </Text>
                     )}
                 </TouchableOpacity>
             </View>
-
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 20,
-        paddingVertical: 14,
-    },
-    backBtn: {
-        padding: 6,
-    },
-    headerTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-    },
-    scrollContent: {
-        paddingHorizontal: 20,
-        paddingTop: 6,
-    },
+    container: { flex: 1 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 },
+    backBtn: { padding: 6 },
+    headerTitle: { fontSize: 18, fontWeight: '700' },
+    scrollContent: { paddingHorizontal: 20, paddingTop: 6 },
 
-    // Barber card
-    barberCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.07,
-        shadowRadius: 6,
-        elevation: 3,
-    },
-    barberAvatar: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        marginRight: 14,
-    },
-    barberInfo: {
-        flex: 1,
-    },
-    barberName: {
-        fontSize: 17,
-        fontWeight: '700',
-        marginBottom: 4,
-    },
-    barberRating: {
-        fontSize: 13,
-        marginBottom: 4,
-    },
-    barberSpec: {
-        fontSize: 12,
-        fontWeight: '600',
-    },
+    // ✅ Warning box styles
+    warningBox: { backgroundColor: '#FFF3CD', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: '#FFC107' },
+    warningText: { color: '#856404', fontSize: 13, lineHeight: 20, marginBottom: 10 },
+    warningBtn: { backgroundColor: '#FFC107', borderRadius: 8, padding: 10, alignItems: 'center' },
+    warningBtnText: { color: '#333', fontWeight: 'bold' },
 
-    // Booking details card
-    detailCard: {
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-        elevation: 2,
-    },
-    cardTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        marginBottom: 14,
-    },
-    infoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
-    },
-    iconWrap: {
-        width: 38,
-        height: 38,
-        borderRadius: 10,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12,
-    },
-    infoIcon: {
-        fontSize: 18,
-    },
-    infoText: {
-        flex: 1,
-    },
-    infoLabel: {
-        fontSize: 12,
-        marginBottom: 2,
-    },
-    infoValue: {
-        fontSize: 14,
-        fontWeight: '600',
-    },
-    divider: {
-        height: 1,
-        marginVertical: 2,
-    },
-
-    // Price card
-    priceCard: {
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-        elevation: 2,
-    },
-    priceRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingVertical: 8,
-    },
-    priceLabel: {
-        fontSize: 14,
-    },
-    priceValue: {
-        fontSize: 14,
-        fontWeight: '600',
-    },
-    totalLabel: {
-        fontSize: 16,
-        fontWeight: '700',
-    },
-    totalValue: {
-        fontSize: 20,
-        fontWeight: '800',
-    },
-
-    // Payment note box
-    noteBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderRadius: 12,
-        padding: 12,
-        borderWidth: 1,
-        marginBottom: 16,
-        gap: 10,
-    },
-    noteIcon: {
-        fontSize: 20,
-    },
-    noteText: {
-        flex: 1,
-        fontSize: 13,
-        lineHeight: 18,
-    },
-
-    // Bottom confirm button bar
-    bottomBar: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: 20,
-        borderTopWidth: 1,
-    },
-    confirmBtn: {
-        paddingVertical: 16,
-        borderRadius: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 5,
-    },
-    loadingRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    confirmBtnText: {
-        color: '#FFF',
-        fontSize: 16,
-        fontWeight: '700',
-    },
+    barberCard: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, padding: 16, marginBottom: 16, elevation: 3 },
+    barberAvatar: { width: 64, height: 64, borderRadius: 32, marginRight: 14 },
+    barberInfo: { flex: 1 },
+    barberName: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
+    barberRating: { fontSize: 13, marginBottom: 4 },
+    detailCard: { borderRadius: 16, padding: 16, marginBottom: 16, elevation: 2 },
+    cardTitle: { fontSize: 16, fontWeight: '700', marginBottom: 14 },
+    infoRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
+    iconWrap: { width: 38, height: 38, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+    infoIcon: { fontSize: 18 },
+    infoText: { flex: 1 },
+    infoLabel: { fontSize: 12, marginBottom: 2 },
+    infoValue: { fontSize: 14, fontWeight: '600' },
+    divider: { height: 1, marginVertical: 2 },
+    priceCard: { borderRadius: 16, padding: 16, marginBottom: 16, elevation: 2 },
+    priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
+    priceLabel: { fontSize: 14 },
+    priceValue: { fontSize: 14, fontWeight: '600' },
+    totalLabel: { fontSize: 16, fontWeight: '700' },
+    totalValue: { fontSize: 20, fontWeight: '800' },
+    noteBox: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, padding: 12, borderWidth: 1, marginBottom: 16, gap: 10 },
+    noteIcon: { fontSize: 20 },
+    noteText: { flex: 1, fontSize: 13, lineHeight: 18 },
+    bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingTop: 16, borderTopWidth: 1 },
+    payBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    payBtnText: { color: '#FFF', fontWeight: '700', fontSize: 16 },
+    cashBtn: { marginTop: 12, paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, backgroundColor: 'transparent' },
+    cashBtnText: { fontWeight: '700', fontSize: 15 },
+    loadingRow: { flexDirection: 'row', alignItems: 'center' },
 });

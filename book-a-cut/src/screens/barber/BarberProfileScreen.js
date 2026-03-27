@@ -482,7 +482,7 @@ export default function BarberProfileScreen({ navigation }) {
 
                         <FieldLabel theme={theme}>Area / Neighbourhood</FieldLabel>
                         <FieldInput theme={theme} value={serviceArea} onChangeText={setServiceArea}
-                            placeholder="e.g. Thamel, Baneshwor" />
+                            placeholder="Enter service area" />
 
                         <View style={[styles.infoBox, { backgroundColor: theme.primary + '15', borderColor: theme.primary + '40' }]}>
                             <Text style={{ color: theme.primary, fontSize: 12, lineHeight: 17 }}>

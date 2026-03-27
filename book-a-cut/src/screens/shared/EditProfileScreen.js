@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { THEME } from '../../theme/theme';
@@ -96,120 +96,125 @@ export default function EditProfileScreen({ route, navigation }) {
                 <Text style={[styles.headerTitle, { color: theme.text }]}>Edit Profile</Text>
             </View>
 
-            <ScrollView contentContainerStyle={styles.content}>
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+            >
+                <ScrollView contentContainerStyle={styles.content}>
 
-                {/* Profile Image Section */}
-                <View style={styles.imageSection}>
-                    {formData.profile_image ? (
-                        <Image
-                            source={{ uri: formData.profile_image }}
-                            style={[styles.profileImage, { backgroundColor: theme.inputBg }]}
+                    {/* Profile Image Section */}
+                    <View style={styles.imageSection}>
+                        {formData.profile_image ? (
+                            <Image
+                                source={{ uri: formData.profile_image }}
+                                style={[styles.profileImage, { backgroundColor: theme.inputBg }]}
+                            />
+                        ) : (
+                            <View style={[styles.profileImage, { backgroundColor: theme.inputBg, justifyContent: 'center', alignItems: 'center' }]}>
+                                <Text style={{ fontSize: 40, color: theme.textMuted }}>📷</Text>
+                            </View>
+                        )}
+                        <TouchableOpacity style={[styles.changePhotoBtn, { backgroundColor: theme.card }]} onPress={pickImage}>
+                            <Text style={[styles.changePhotoText, { color: theme.primary }]}>Change Photo</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Form Fields */}
+                    <View style={styles.inputContainer}>
+                        <Text style={[styles.label, { color: theme.textLight }]}>Username</Text>
+                        <TextInput
+                            style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
+                            value={formData.username}
+                            onChangeText={(text) => handleChange('username', text)}
+                            placeholder="Enter username"
+                            placeholderTextColor={theme.textMuted}
                         />
-                    ) : (
-                        <View style={[styles.profileImage, { backgroundColor: theme.inputBg, justifyContent: 'center', alignItems: 'center' }]}>
-                            <Text style={{ fontSize: 40, color: theme.textMuted }}>📷</Text>
+                    </View>
+
+                    <View style={styles.inputContainer}>
+                        <Text style={[styles.label, { color: theme.textLight }]}>Email</Text>
+                        <TextInput
+                            style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
+                            value={formData.email}
+                            onChangeText={(text) => handleChange('email', text)}
+                            placeholder="Enter email"
+                            placeholderTextColor={theme.textMuted}
+                            keyboardType="email-address"
+                        />
+                    </View>
+
+                    <View style={styles.row}>
+                        <View style={[styles.inputContainer, { flex: 1, marginRight: 10 }]}>
+                            <Text style={[styles.label, { color: theme.textLight }]}>Age</Text>
+                            <TextInput
+                                style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
+                                value={formData.age}
+                                onChangeText={(text) => handleChange('age', text)}
+                                placeholder="Age"
+                                placeholderTextColor={theme.textMuted}
+                                keyboardType="numeric"
+                            />
                         </View>
-                    )}
-                    <TouchableOpacity style={[styles.changePhotoBtn, { backgroundColor: theme.card }]} onPress={pickImage}>
-                        <Text style={[styles.changePhotoText, { color: theme.primary }]}>Change Photo</Text>
+                        <View style={[styles.inputContainer, { flex: 2 }]}>
+                            <Text style={[styles.label, { color: theme.textLight }]}>Date of Birth (YYYY-MM-DD)</Text>
+                            <TextInput
+                                style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
+                                value={formData.dob}
+                                onChangeText={(text) => handleChange('dob', text)}
+                                placeholder="2000-01-01"
+                                placeholderTextColor={theme.textMuted}
+                            />
+                        </View>
+                    </View>
+
+                    <View style={styles.inputContainer}>
+                        <Text style={[styles.label, { color: theme.textLight }]}>Gender</Text>
+                        <View style={styles.genderRow}>
+                            <GenderOption label="Male" value="Male" />
+                            <GenderOption label="Female" value="Female" />
+                            <GenderOption label="Other" value="Other" />
+                        </View>
+                    </View>
+
+                    <View style={styles.inputContainer}>
+                        <Text style={[styles.label, { color: theme.textLight }]}>Phone Number</Text>
+                        <TextInput
+                            style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
+                            value={formData.phone}
+                            onChangeText={(text) => handleChange('phone', text)}
+                            placeholder="Enter phone number"
+                            placeholderTextColor={theme.textMuted}
+                            keyboardType="phone-pad"
+                        />
+                    </View>
+
+                    <View style={styles.inputContainer}>
+                        <Text style={[styles.label, { color: theme.textLight }]}>Address / Place</Text>
+                        <TextInput
+                            style={[styles.input, { height: 80, backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
+                            value={formData.address}
+                            onChangeText={(text) => handleChange('address', text)}
+                            placeholder="Enter your address"
+                            placeholderTextColor={theme.textMuted}
+                            multiline
+                        />
+                    </View>
+
+                    <TouchableOpacity
+                        style={[styles.saveBtn, { backgroundColor: theme.primary, shadowColor: theme.primary }, loading && styles.disabledBtn]}
+                        onPress={handleSave}
+                        disabled={loading}
+                    >
+                        {loading ? (
+                            <ActivityIndicator color="#FFF" />
+                        ) : (
+                            <Text style={styles.saveText}>Save Changes</Text>
+                        )}
                     </TouchableOpacity>
-                </View>
 
-                {/* Form Fields */}
-                <View style={styles.inputContainer}>
-                    <Text style={[styles.label, { color: theme.textLight }]}>Username</Text>
-                    <TextInput
-                        style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                        value={formData.username}
-                        onChangeText={(text) => handleChange('username', text)}
-                        placeholder="Enter username"
-                        placeholderTextColor={theme.textMuted}
-                    />
-                </View>
-
-                <View style={styles.inputContainer}>
-                    <Text style={[styles.label, { color: theme.textLight }]}>Email</Text>
-                    <TextInput
-                        style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                        value={formData.email}
-                        onChangeText={(text) => handleChange('email', text)}
-                        placeholder="Enter email"
-                        placeholderTextColor={theme.textMuted}
-                        keyboardType="email-address"
-                    />
-                </View>
-
-                <View style={styles.row}>
-                    <View style={[styles.inputContainer, { flex: 1, marginRight: 10 }]}>
-                        <Text style={[styles.label, { color: theme.textLight }]}>Age</Text>
-                        <TextInput
-                            style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                            value={formData.age}
-                            onChangeText={(text) => handleChange('age', text)}
-                            placeholder="Age"
-                            placeholderTextColor={theme.textMuted}
-                            keyboardType="numeric"
-                        />
-                    </View>
-                    <View style={[styles.inputContainer, { flex: 2 }]}>
-                        <Text style={[styles.label, { color: theme.textLight }]}>Date of Birth (YYYY-MM-DD)</Text>
-                        <TextInput
-                            style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                            value={formData.dob}
-                            onChangeText={(text) => handleChange('dob', text)}
-                            placeholder="2000-01-01"
-                            placeholderTextColor={theme.textMuted}
-                        />
-                    </View>
-                </View>
-
-                <View style={styles.inputContainer}>
-                    <Text style={[styles.label, { color: theme.textLight }]}>Gender</Text>
-                    <View style={styles.genderRow}>
-                        <GenderOption label="Male" value="Male" />
-                        <GenderOption label="Female" value="Female" />
-                        <GenderOption label="Other" value="Other" />
-                    </View>
-                </View>
-
-                <View style={styles.inputContainer}>
-                    <Text style={[styles.label, { color: theme.textLight }]}>Phone Number</Text>
-                    <TextInput
-                        style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                        value={formData.phone}
-                        onChangeText={(text) => handleChange('phone', text)}
-                        placeholder="Enter phone number"
-                        placeholderTextColor={theme.textMuted}
-                        keyboardType="phone-pad"
-                    />
-                </View>
-
-                <View style={styles.inputContainer}>
-                    <Text style={[styles.label, { color: theme.textLight }]}>Address / Place</Text>
-                    <TextInput
-                        style={[styles.input, { height: 80, backgroundColor: theme.inputBg, borderColor: theme.border, color: theme.text }]}
-                        value={formData.address}
-                        onChangeText={(text) => handleChange('address', text)}
-                        placeholder="Enter your address"
-                        placeholderTextColor={theme.textMuted}
-                        multiline
-                    />
-                </View>
-
-                <TouchableOpacity
-                    style={[styles.saveBtn, { backgroundColor: theme.primary, shadowColor: theme.primary }, loading && styles.disabledBtn]}
-                    onPress={handleSave}
-                    disabled={loading}
-                >
-                    {loading ? (
-                        <ActivityIndicator color="#FFF" />
-                    ) : (
-                        <Text style={styles.saveText}>Save Changes</Text>
-                    )}
-                </TouchableOpacity>
-
-                <View style={{ height: 40 }} />
-            </ScrollView>
+                    <View style={{ height: 40 }} />
+                </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }

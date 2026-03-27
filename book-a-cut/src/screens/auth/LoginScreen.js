@@ -59,6 +59,8 @@ export default function LoginScreen({ navigation }) {
           // Navigate based on user type
           if (user.user_type === 'barber') {
             navigation.reset({ index: 0, routes: [{ name: "BarberHome" }] });
+          } else if (user.user_type === 'admin') {
+            navigation.reset({ index: 0, routes: [{ name: "AdminDashboard" }] });
           } else {
             navigation.reset({ index: 0, routes: [{ name: "Home" }] });
           }
@@ -130,6 +132,8 @@ export default function LoginScreen({ navigation }) {
         // Navigate based on user type
         if (user.user_type === 'barber') {
           navigation.reset({ index: 0, routes: [{ name: "BarberHome" }] });
+        } else if (user.user_type === 'admin') {
+          navigation.reset({ index: 0, routes: [{ name: "AdminDashboard" }] });
         } else {
           navigation.reset({ index: 0, routes: [{ name: "Home" }] });
         }

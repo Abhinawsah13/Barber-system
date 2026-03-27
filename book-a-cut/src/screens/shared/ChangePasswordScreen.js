@@ -44,7 +44,7 @@ export default function ChangePasswordScreen({ navigation }) {
         setLoading(true);
         try {
             await changePassword({
-                oldPassword,
+                currentPassword: oldPassword,
                 newPassword
             });
 

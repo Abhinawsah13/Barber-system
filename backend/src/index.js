@@ -18,6 +18,7 @@ import serviceRoutesV2 from './routes/service.routes.js';
 import barberRoutesV2 from './routes/barber.routes.js';
 import bookingRoutesV2 from './routes/booking.routes.js';
 import reviewRoutes from './routes/review.routes.js';
+import paymentRoutes from './routes/payment.routes.js';
 
 // Debugging .env loading
 console.log('Current CWD:', process.cwd());
@@ -54,6 +55,8 @@ app.use('/api/v2/services', serviceRoutesV2);
 app.use('/api/v2/barbers', barberRoutesV2);
 app.use('/api/v2/bookings', bookingRoutesV2);
 app.use('/api/v2/reviews', reviewRoutes);
+app.use('/api/v2/payments', paymentRoutes);
+app.use('/api/v2/ai', aiRoutes);
 
 // Basic route
 app.get('/', (req, res) => {
@@ -121,6 +124,29 @@ io.on('connection', (socket) => {
     socket.on('join-user-room', (userId) => {
         socket.join(`user-${userId}`);
         console.log(`User ${userId} joined room`);
+    });
+
+    // ── ✅ NEW: Customer Live Location → forward to Barber ────
+    // Customer emits this every 5 seconds when home service is active
+    socket.on('customer-location-update', (data) => {
+        const { bookingId, barberId, lat, lng, timestamp } = data;
+        console.log(`[LiveLocation] Booking ${bookingId} → Barber ${barberId}: ${lat}, ${lng}`);
+        // Forward customer location to the barber's room
+        io.to(`barber-${barberId}`).emit('customer-location-update', {
+            bookingId,
+            lat,
+            lng,
+            timestamp
+        });
+    });
+
+    // ── ✅ NEW: Customer stopped sharing location ─────────────
+    socket.on('customer-location-stopped', (data) => {
+        const { bookingId, barberId } = data;
+        console.log(`[LiveLocation] Customer stopped sharing for booking ${bookingId}`);
+        io.to(`barber-${barberId}`).emit('customer-location-stopped', {
+            bookingId
+        });
     });
 
     socket.on('disconnect', () => {

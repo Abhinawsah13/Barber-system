@@ -40,6 +40,9 @@ import BarberSelectionScreen from "../screens/customer/BarberSelectionScreen";
 import DateTimePickerScreen from "../screens/customer/DateTimePickerScreen";
 import BookingConfirmationScreen from "../screens/customer/BookingConfirmationScreen";
 import RateBarberScreen from "../screens/customer/RateBarberScreen";
+import NearbyMapScreen from "../screens/customer/NearbyMapScreen";
+import MapScreen from "../screens/customer/MapScreen";
+import PaymentWebViewScreen from "../screens/customer/PaymentWebViewScreen";
 
 // Barber Screens
 import BarberHomeScreen from "../screens/barber/BarberHomeScreen";
@@ -112,6 +115,8 @@ export default function AppNavigator() {
 
         if (userData && userData.user_type === 'barber') {
           setInitialRoute('BarberHome');
+        } else if (userData && userData.user_type === 'admin') {
+          setInitialRoute('AdminDashboard');
         } else {
           setInitialRoute('Home');
         }
@@ -189,6 +194,9 @@ export default function AppNavigator() {
         <Stack.Screen name="DateTimePicker" component={DateTimePickerScreen} />
         <Stack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
         <Stack.Screen name="RateBarber" component={RateBarberScreen} />
+        <Stack.Screen name="NearbyMap" component={NearbyMapScreen} />
+        <Stack.Screen name="MapScreen" component={MapScreen} />
+        <Stack.Screen name="PaymentWebView" component={PaymentWebViewScreen} options={{ headerShown: false }} />
 
         {/* Shared Screens */}
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />

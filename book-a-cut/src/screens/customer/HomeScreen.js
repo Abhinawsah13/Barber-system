@@ -9,47 +9,64 @@ import {
     TextInput,
     ActivityIndicator,
     RefreshControl,
-    ScrollView
+    ScrollView,
+    Linking,
+    Alert
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
-import { getBarbers, getProfile, getMyBookings, searchBarbers } from "../../services/api";
-import { formatDateTime } from '../../utils/dateUtils';
+import { getBarbers, getProfile, getMyBookings } from "../../services/api";
+import { getUserData } from "../../services/TokenManager";
+import { formatDate } from '../../utils/dateUtils';
 
 export default function HomeScreen({ navigation }) {
     const { theme } = useTheme();
     const [barbers, setBarbers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [searchQuery, setSearchQuery] = useState("");
+    const [searchText, setSearchText] = useState("");
     const [userName, setUserName] = useState("Guest");
     const [greeting, setGreeting] = useState("Welcome");
-    const [upcomingBooking, setUpcomingBooking] = useState(null);
-    const [selectedService, setSelectedService] = useState('all'); // 'all', 'salon', 'home'
+    const [upcomingBookings, setUpcomingBookings] = useState([]);
+    const [selectedService, setSelectedService] = useState('all');
+    const [profileMissing, setProfileMissing] = useState([]);
 
     const fetchUpcoming = async () => {
         try {
             const bookings = await getMyBookings();
-            // Filter future bookings
             const now = new Date();
-            const future = bookings
-                .filter(b => (b.status === 'confirmed' || b.status === 'pending') && new Date(b.date) > now)
-                .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-            if (future.length > 0) {
-                setUpcomingBooking(future[0]);
-            } else {
-                setUpcomingBooking(null);
-            }
+            const future = bookings
+                .filter(b => {
+                    if (b.status !== 'confirmed' && b.status !== 'pending') return false;
+                    // Build the real appointment datetime from date + time_slot
+                    const dateStr = new Date(b.date).toISOString().split('T')[0]; // "YYYY-MM-DD"
+                    const ts = b.time_slot || '00:00';
+                    const [h, m] = ts.split(':').map(Number);
+                    const apptTime = new Date(dateStr);
+                    apptTime.setHours(h, m, 0, 0);
+                    return apptTime > now;
+                })
+                .sort((a, b) => {
+                    const toMs = (booking) => {
+                        const ds = new Date(booking.date).toISOString().split('T')[0];
+                        const [h, m] = (booking.time_slot || '00:00').split(':').map(Number);
+                        const d = new Date(ds); d.setHours(h, m, 0, 0);
+                        return d.getTime();
+                    };
+                    return toMs(a) - toMs(b);
+                });
+
+            setUpcomingBookings(future);
         } catch (e) {
             console.log("Error fetching upcoming", e);
         }
     };
 
-    const fetchBarbers = async (type = selectedService) => {
+    const fetchBarbers = async () => {
         setLoading(true);
         try {
-            const data = await getBarbers({ type });
+            const data = await getBarbers({ type: 'all' });
             setBarbers(data);
         } catch (error) {
             console.error("Failed to fetch barbers", error);
@@ -64,9 +81,16 @@ export default function HomeScreen({ navigation }) {
             const user = await getProfile();
             if (user && user.username) {
                 setUserName(user.username);
+
+                // Check which fields are missing
+                const missing = [];
+                if (!user.phone) missing.push('phone number');
+                if (!user.profile_image) missing.push('profile photo');
+                if (!user.gender) missing.push('gender');
+                setProfileMissing(missing);
             }
         } catch (error) {
-            console.log("Failed to fetch profile");
+            console.log('Failed to fetch profile');
         }
     };
 
@@ -78,6 +102,14 @@ export default function HomeScreen({ navigation }) {
     };
 
     useEffect(() => {
+        const checkUserType = async () => {
+            const userData = await getUserData();
+            if (userData && userData.user_type === 'admin') {
+                navigation.replace('AdminDashboard');
+            }
+        };
+
+        checkUserType();
         fetchBarbers();
         fetchUserProfile();
         updateGreeting();
@@ -92,37 +124,32 @@ export default function HomeScreen({ navigation }) {
         fetchUpcoming();
     };
 
-    // Filter barbers based on search query (Server-side)
-    const performSearch = async (query, type = selectedService) => {
-        if (!query.trim()) {
-            fetchBarbers(type);
-            return;
+    const filteredBarbers = barbers.filter((barber) => {
+        const text = searchText.toLowerCase();
+
+        // match search
+        const matchesSearch =
+            barber.user.username.toLowerCase().includes(text) ||
+            barber.specialization?.join(" ").toLowerCase().includes(text) ||
+            barber.service_type.toLowerCase().includes(text);
+
+        // match service filter
+        let matchesService = true;
+
+        if (selectedService === "salon") {
+            matchesService =
+                barber.service_type === "salon" ||
+                barber.service_type === "both";
         }
-        setLoading(true);
-        try {
-            const results = await searchBarbers(query, type, 'all');
-            setBarbers(results);
-        } catch (error) {
-            console.error("Search failed", error);
-        } finally {
-            setLoading(false);
+
+        if (selectedService === "home") {
+            matchesService =
+                barber.service_type === "home" ||
+                barber.service_type === "both";
         }
-    };
 
-    // Debounce search input
-    useEffect(() => {
-        const delayDebounceFn = setTimeout(() => {
-            if (searchQuery) {
-                performSearch(searchQuery);
-            } else {
-                fetchBarbers();
-            }
-        }, 500);
-
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchQuery]);
-
-    const filteredBarbers = barbers; // Results are already filtered by server
+        return matchesSearch && matchesService;
+    });
 
     const renderBarberCard = ({ item }) => {
         const user = item.user || {};
@@ -217,82 +244,148 @@ export default function HomeScreen({ navigation }) {
                         style={[styles.searchInput, { color: theme.text }]}
                         placeholder="Find a barber or service..."
                         placeholderTextColor={theme.textLight}
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
+                        value={searchText}
+                        onChangeText={setSearchText}
                     />
-                    <TouchableOpacity>
-                        <Text style={{ fontSize: 20, color: '#999' }}>⚙️</Text>
-                    </TouchableOpacity>
                 </View>
+
+                {/* ── Incomplete Profile Banner ─────────────────────────── */}
+                {profileMissing.length > 0 && (
+                    <TouchableOpacity
+                        style={styles.profileBanner}
+                        onPress={() => navigation.navigate('UserProfile')}
+                        activeOpacity={0.85}
+                    >
+                        <Text style={styles.profileBannerIcon}>⚠️</Text>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.profileBannerTitle}>Complete Your Profile</Text>
+                            <Text style={styles.profileBannerMsg} numberOfLines={2}>
+                                Missing: {profileMissing.join(', ')}. Tap to complete →
+                            </Text>
+                        </View>
+                    </TouchableOpacity>
+                )}
 
                 {/* Categories */}
                 <View style={styles.categoriesRow}>
                     <TouchableOpacity
                         style={[styles.categoryPill, selectedService === 'all' && styles.catActive]}
-                        onPress={() => {
-                            setSelectedService('all');
-                            if (searchQuery) {
-                                performSearch(searchQuery, 'all');
-                            } else {
-                                fetchBarbers('all');
-                            }
-                        }}
+                        onPress={() => setSelectedService('all')}
                     >
                         <Text style={selectedService === 'all' ? styles.catTextActive : [styles.catText, { color: theme.text }]}>All</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                         style={[styles.categoryPill, selectedService === 'salon' && styles.catActive]}
-                        onPress={() => navigation.navigate("HomeServices", { serviceType: 'salon' })}
+                        onPress={() => setSelectedService('salon')}
                     >
                         <Text style={selectedService === 'salon' ? styles.catTextActive : [styles.catText, { color: theme.text }]}>💇‍♂️ Salon</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                         style={[styles.categoryPill, selectedService === 'home' && styles.catActive]}
-                        onPress={() => navigation.navigate("HomeServices", { serviceType: 'home' })}
+                        onPress={() => setSelectedService('home')}
                     >
                         <Text style={selectedService === 'home' ? styles.catTextActive : [styles.catText, { color: theme.text }]}>🏠 Home</Text>
                     </TouchableOpacity>
                 </View>
 
-                {/* Upcoming Appointment */}
-                {upcomingBooking ? (
+                {/* Upcoming Appointments */}
+                {upcomingBookings.length > 0 ? (
                     <>
                         <View style={styles.sectionHeader}>
-                            <Text style={[styles.sectionTitle, { color: theme.text }]}>Upcoming Appointment</Text>
-                            <TouchableOpacity onPress={() => navigation.navigate("Calendar")}>
-                                <Text style={[styles.seeAll, { color: theme.primary }]}>See Calendar</Text>
+                            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                                Upcoming Appointments
+                                {upcomingBookings.length > 1 ? (
+                                    <Text style={{ color: theme.primary, fontSize: 14 }}> ({upcomingBookings.length})</Text>
+                                ) : null}
+                            </Text>
+                            <TouchableOpacity onPress={() => navigation.navigate('MyBookings')}>
+                                <Text style={[styles.seeAll, { color: theme.primary }]}>View All</Text>
                             </TouchableOpacity>
                         </View>
 
-                        <View style={styles.upcomingCard}>
-                            <View style={styles.upcomingHeader}>
-                                <Image source={upcomingBooking.barber?.profile_image ? { uri: upcomingBooking.barber?.profile_image } : require('../../../assets/barber.png')} style={styles.upcomingAvatar} />
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.upcomingName}>{upcomingBooking.barberName || "Barber"}</Text>
-                                    <View style={styles.statusBadge}>
-                                        <Text style={styles.statusText}>{upcomingBooking.status.charAt(0).toUpperCase() + upcomingBooking.status.slice(1)}</Text>
+                        {upcomingBookings.map((booking, index) => {
+                            const ts = booking.time_slot || '';
+                            let timeDisplay = '';
+                            if (ts) {
+                                const [h, m] = ts.split(':').map(Number);
+                                const period = h >= 12 ? 'PM' : 'AM';
+                                const hour12 = h % 12 === 0 ? 12 : h % 12;
+                                timeDisplay = `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+                            }
+
+                            return (
+                                <View key={booking._id || index} style={[styles.upcomingCard, index > 0 && { marginTop: -10, opacity: 0.95 }]}>
+                                    <View style={styles.upcomingHeader}>
+                                        <Image
+                                            source={booking.barber?.profile_image ? { uri: booking.barber.profile_image } : require('../../../assets/barber.png')}
+                                            style={styles.upcomingAvatar}
+                                        />
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={styles.upcomingName}>
+                                                {booking.barber?.username || booking.barberName || 'Barber'}
+                                            </Text>
+                                            <View style={styles.statusBadge}>
+                                                <Text style={styles.statusText}>
+                                                    {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                        {booking.service?.name ? (
+                                            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, maxWidth: 90, textAlign: 'right' }}>
+                                                ✂️ {booking.service.name}
+                                            </Text>
+                                        ) : null}
+                                    </View>
+
+                                    <View style={styles.upcomingTimeRow}>
+                                        <Text style={{ color: '#FFF', fontSize: 16, marginRight: 8 }}>📅</Text>
+                                        <Text style={styles.upcomingTime}>{formatDate(booking.date)}, {timeDisplay}</Text>
+                                    </View>
+
+                                    <View style={styles.divider} />
+
+                                    <View style={styles.upcomingActions}>
+                                        <TouchableOpacity
+                                            style={styles.actionBtnWhite}
+                                            onPress={() => {
+                                                const coords = booking.barber_location?.coordinates;
+                                                const profileCoords = booking.barber?.location?.coordinates;
+                                                const address =
+                                                    booking.barber?.location?.address ||
+                                                    booking.barber?.location?.city ||
+                                                    booking.barber?.address ||
+                                                    booking.customer_address || '';
+                                                if (coords && coords.length === 2) {
+                                                    const [lng, lat] = coords;
+                                                    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
+                                                } else if (profileCoords && profileCoords.length === 2) {
+                                                    const [lng, lat] = profileCoords;
+                                                    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
+                                                } else if (address) {
+                                                    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`);
+                                                } else {
+                                                    Alert.alert('No Location', 'Location info not found for this booking.');
+                                                }
+                                            }}
+                                        >
+                                            <Text style={styles.actionBtnTextPurple}>Get Directions</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.actionBtnTransparent}
+                                            onPress={() => navigation.navigate('BarberDetails', {
+                                                barber: booking.barber,
+                                                barberId: booking.barber?._id || booking.barber,
+                                                serviceType: booking.service_type || 'salon'
+                                            })}
+                                        >
+                                            <Text style={styles.actionBtnTextWhite}>Reschedule</Text>
+                                        </TouchableOpacity>
                                     </View>
                                 </View>
-                            </View>
-
-                            <View style={styles.upcomingTimeRow}>
-                                <Text style={{ color: '#FFF', fontSize: 16, marginRight: 8 }}>📅</Text>
-                                <Text style={styles.upcomingTime}>{formatDateTime(upcomingBooking.date)}</Text>
-                            </View>
-
-                            <View style={styles.divider} />
-
-                            <View style={styles.upcomingActions}>
-                                <TouchableOpacity style={styles.actionBtnWhite}>
-                                    <Text style={styles.actionBtnTextPurple}>Get Directions</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.actionBtnTransparent}>
-                                    <Text style={styles.actionBtnTextWhite}>Reschedule</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
+                            );
+                        })}
                     </>
                 ) : null}
 
@@ -329,10 +422,9 @@ export default function HomeScreen({ navigation }) {
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={{ paddingRight: 20 }}
                     />
-                ) : (
-                    <View style={styles.emptyContainer}>
-                        <Text style={{ color: theme.textLight, fontSize: 16 }}>No barbers available for this service</Text>
-                    </View>
+                ) : null}
+                {!loading && filteredBarbers.length === 0 && (
+                    <Text>No barbers found</Text>
                 )}
 
                 <View style={{ height: 100 }} />
@@ -714,5 +806,30 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#CCC',
         marginTop: 10,
-    }
+    },
+
+    // ── Profile incomplete banner ──────────────────────────────────────
+    profileBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF7ED',
+        borderWidth: 1.5,
+        borderColor: '#F97316',
+        borderRadius: 12,
+        padding: 12,
+        marginHorizontal: 20,
+        marginBottom: 12,
+        gap: 10,
+    },
+    profileBannerIcon: { fontSize: 22 },
+    profileBannerTitle: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#C2410C',
+        marginBottom: 2,
+    },
+    profileBannerMsg: {
+        fontSize: 12,
+        color: '#9A3412',
+    },
 });

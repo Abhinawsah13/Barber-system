@@ -74,6 +74,9 @@ export const createReview = async (req, res) => {
             anonymous: anonymous === true,
         });
 
+        // mark booking so frontend knows review is done without extra lookup
+        await Booking.findByIdAndUpdate(bookingId, { reviewGiven: true });
+
         // update barber's average rating
         await recalculateBarberRating(barberId);
 

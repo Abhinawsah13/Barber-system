@@ -8,39 +8,47 @@ import { useTheme } from '../../context/ThemeContext';
 import { getServices } from '../../services/api';
 
 const PURPLE = '#7B2FBE';
-const AMBER = '#F59E0B';
 const CREAM = '#F5F0E8';
 
+const getServiceImage = (serviceName) => {
+    if (!serviceName) return require('../../../assets/barber.png');
+    const name = String(serviceName).toLowerCase().replace(/\s+/g, '_');
+    if (name.includes('beard') || name.includes('bread')) return require('../../../assets/beard_trim.jpg');
+    if (name.includes('hair')) return require('../../../assets/hair_cut.jpg');
+    if (name.includes('facial')) return require('../../../assets/facial.jpg');
+    if (name.includes('shave')) return require('../../../assets/shave.jpg');
+    return require('../../../assets/barber.png');
+};
+
 const CATEGORY_META = {
-    All: { emoji: '✨', color: PURPLE },
-    Haircut: { emoji: '✂️', color: '#2563EB' },
-    Shave: { emoji: '🪒', color: '#059669' },
-    Facial: { emoji: '💆', color: '#DB2777' },
-    Coloring: { emoji: '🎨', color: '#D97706' },
-    Other: { emoji: '💈', color: '#6B7280' },
+    'All': { emoji: '✨' },
+    'Haircut': { emoji: '✂️' },
+    'Shave': { emoji: '🪒' },
+    'Facial': { emoji: '💆' },
+    'Hair Color': { emoji: '🎨' },
+    'Beard Trim': { emoji: '🧔' },
+    'Kids Cut': { emoji: '👦' },
+    'Others': { emoji: '💈' },
 };
 const CATEGORIES = Object.keys(CATEGORY_META);
 
-// Service card with barber info and category badge
 function ServiceCard({ item, onPress, theme }) {
-    const meta = CATEGORY_META[item.category] || CATEGORY_META.Other;
-
     return (
         <TouchableOpacity
             activeOpacity={0.88}
             onPress={() => onPress(item)}
             style={[styles.card, { backgroundColor: theme.card }]}
         >
-            {/* image */}
             <Image
-                source={{ uri: item.image || `https://picsum.photos/seed/${item._id}/600/300` }}
+                source={getServiceImage(item.name)}
                 style={styles.cardImg}
                 resizeMode="cover"
             />
 
-            {/* category badge overlay */}
-            <View style={[styles.catBadge, { backgroundColor: meta.color }]}>
-                <Text style={styles.catBadgeText}>{meta.emoji} {item.category}</Text>
+            <View style={styles.catBadge}>
+                <Text style={styles.catBadgeText}>
+                    {CATEGORY_META[item.category]?.emoji || '💈'} {item.category}
+                </Text>
             </View>
 
             <View style={styles.cardBody}>
@@ -60,18 +68,18 @@ function ServiceCard({ item, onPress, theme }) {
                 ) : null}
 
                 <View style={styles.cardFooterRow}>
-                    {/* duration */}
-                    <View style={[styles.pill, { backgroundColor: PURPLE + '15' }]}>
-                        <Text style={[styles.pillText, { color: PURPLE }]}>
+                    <View style={[styles.durationPill, { backgroundColor: PURPLE + '18' }]}>
+                        <Text style={[styles.durationText, { color: PURPLE }]}>
                             ⏱ {item.duration_minutes} min
                         </Text>
                     </View>
 
-                    {/* barber name if populated */}
                     {item.barber?.username ? (
                         <View style={styles.barberRow}>
                             <Image
-                                source={{ uri: item.barber.profile_image || `https://i.pravatar.cc/40?u=${item.barber._id}` }}
+                                source={item.barber.profile_image
+                                    ? { uri: item.barber.profile_image }
+                                    : require('../../../assets/barber.png')}
                                 style={styles.barberAvatar}
                             />
                             <Text style={[styles.barberName, { color: theme.textMuted }]} numberOfLines={1}>
@@ -82,8 +90,7 @@ function ServiceCard({ item, onPress, theme }) {
                 </View>
             </View>
 
-            {/* tap CTA */}
-            <View style={[styles.bookStrip, { backgroundColor: PURPLE }]}>
+            <View style={styles.bookStrip}>
                 <Text style={styles.bookStripText}>Book This Service →</Text>
             </View>
         </TouchableOpacity>
@@ -122,11 +129,28 @@ export default function ServiceBrowsingScreen({ navigation, route }) {
 
     useEffect(() => { fetchServices(); }, [fetchServices]);
 
-    // local filter whenever category / search / source list changes
     useEffect(() => {
         let list = [...services];
-        if (selectedCategory !== 'All') list = list.filter(s => s.category === selectedCategory);
-        if (search.trim()) list = list.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+
+        if (selectedCategory !== 'All') {
+            list = list.filter(s => {
+                const cat = (s.category || '').toLowerCase().trim();
+                const selected = selectedCategory.toLowerCase().trim();
+                if (cat === selected) return true;
+                if (selected === 'hair color') {
+                    return cat.includes('color') || cat.includes('colour') || cat.includes('hair');
+                }
+                return cat.includes(selected) || selected.includes(cat);
+            });
+        }
+
+        if (search.trim()) {
+            list = list.filter(s =>
+                s.name.toLowerCase().includes(search.toLowerCase()) ||
+                (s.category || '').toLowerCase().includes(search.toLowerCase())
+            );
+        }
+
         setFiltered(list);
     }, [selectedCategory, search, services]);
 
@@ -153,7 +177,7 @@ export default function ServiceBrowsingScreen({ navigation, route }) {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
                     <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
                 </TouchableOpacity>
-                <View>
+                <View style={{ alignItems: 'center' }}>
                     <Text style={[styles.headerTitle, { color: theme.text }]}>Explore Services</Text>
                     <Text style={[styles.headerSub, { color: theme.textMuted }]}>
                         {services.length} services available
@@ -181,27 +205,32 @@ export default function ServiceBrowsingScreen({ navigation, route }) {
                 </View>
             </View>
 
-            {/* Category chips — horizontal scroll */}
+            {/* Category chips */}
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chipRow}
             >
                 {CATEGORIES.map(cat => {
-                    const meta = CATEGORY_META[cat];
                     const active = selectedCategory === cat;
+                    const meta = CATEGORY_META[cat];
                     return (
                         <TouchableOpacity
                             key={cat}
                             onPress={() => setSelectedCategory(cat)}
+                            activeOpacity={0.8}
                             style={[
                                 styles.chip,
-                                { backgroundColor: active ? meta.color : '#fff', borderColor: active ? meta.color : '#E5E7EB' },
+                                active ? styles.chipActive : styles.chipInactive,
                             ]}
-                            activeOpacity={0.8}
                         >
                             <Text style={styles.chipEmoji}>{meta.emoji}</Text>
-                            <Text style={[styles.chipLabel, { color: active ? '#fff' : '#555' }]}>{cat}</Text>
+                            <Text style={[
+                                styles.chipLabel,
+                                { color: active ? '#ffffff' : '#222222' }
+                            ]}>
+                                {cat}
+                            </Text>
                         </TouchableOpacity>
                     );
                 })}
@@ -216,7 +245,6 @@ export default function ServiceBrowsingScreen({ navigation, route }) {
                 </Text>
             </View>
 
-            {/* Error state */}
             {error ? (
                 <View style={styles.errorBox}>
                     <Text style={styles.errorText}>⚠️ {error}</Text>
@@ -269,59 +297,127 @@ const styles = StyleSheet.create({
     loadingView: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
     loadingText: { fontSize: 14, fontWeight: '600' },
 
-    // header
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingVertical: 14 },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 18,
+        paddingVertical: 14,
+    },
     iconBtn: { padding: 6 },
     headerTitle: { fontSize: 18, fontWeight: '800' },
     headerSub: { fontSize: 12, marginTop: 1 },
 
-    // search
     searchWrap: { paddingHorizontal: 16, paddingBottom: 10, paddingTop: 4 },
-    searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 11, borderRadius: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+    searchBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 14,
+        paddingVertical: 11,
+        borderRadius: 14,
+        elevation: 2,
+    },
     searchIcon: { fontSize: 16, marginRight: 8 },
     searchInput: { flex: 1, fontSize: 15 },
 
-    // chips
-    chipRow: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
-    chip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 100, borderWidth: 1.5, marginRight: 8, gap: 5 },
+    chipRow: {
+        paddingHorizontal: 16,
+        paddingBottom: 12,
+        paddingTop: 4,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    chip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 9,
+        borderRadius: 100,
+        borderWidth: 1.5,
+        marginRight: 10,
+        gap: 5,
+    },
+    chipActive: {
+        backgroundColor: PURPLE,
+        borderColor: PURPLE,
+    },
+    chipInactive: {
+        backgroundColor: '#ffffff',
+        borderColor: '#bbbbbb',
+    },
     chipEmoji: { fontSize: 14 },
-    chipLabel: { fontSize: 13, fontWeight: '600' },
+    chipLabel: { fontSize: 13, fontWeight: '700' },
 
-    // results
     resultsRow: { paddingHorizontal: 18, paddingBottom: 8 },
     resultsText: { fontSize: 12 },
 
-    // error
-    errorBox: { marginHorizontal: 16, marginBottom: 10, backgroundColor: '#FEF2F2', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#FECACA' },
+    errorBox: {
+        marginHorizontal: 16,
+        marginBottom: 10,
+        backgroundColor: '#FEF2F2',
+        borderRadius: 12,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: '#FECACA',
+    },
     errorText: { color: '#DC2626', fontSize: 13 },
 
-    // list
     listContent: { paddingHorizontal: 16, paddingBottom: 30 },
 
-    // card
-    card: { borderRadius: 18, marginBottom: 18, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.09, shadowRadius: 8, elevation: 4 },
-    cardImg: { width: '100%', height: 150 },
-    catBadge: { position: 'absolute', top: 12, left: 12, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
+    card: {
+        borderRadius: 18,
+        marginBottom: 18,
+        overflow: 'hidden',
+        elevation: 4,
+    },
+    cardImg: { width: '100%', height: 160 },
+    catBadge: {
+        position: 'absolute',
+        top: 12,
+        left: 12,
+        backgroundColor: PURPLE,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 100,
+    },
     catBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
     cardBody: { padding: 14 },
-    cardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 },
+    cardTopRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 5,
+    },
     cardName: { fontSize: 16, fontWeight: '800', flex: 1, marginRight: 8 },
     cardPrice: { fontSize: 18, fontWeight: '900' },
-    cardDesc: { fontSize: 13, lineHeight: 18, marginBottom: 10, color: '#666' },
-    cardFooterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    pill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-    pillText: { fontSize: 12, fontWeight: '600' },
+    cardDesc: { fontSize: 13, lineHeight: 18, marginBottom: 10 },
+    cardFooterRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    durationPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+    durationText: { fontSize: 12, fontWeight: '600' },
     barberRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    barberAvatar: { width: 22, height: 22, borderRadius: 11 },
-    barberName: { fontSize: 12, maxWidth: 120 },
-    bookStrip: { paddingVertical: 11, alignItems: 'center' },
+    barberAvatar: { width: 24, height: 24, borderRadius: 12 },
+    barberName: { fontSize: 12, maxWidth: 130 },
+    bookStrip: {
+        paddingVertical: 12,
+        alignItems: 'center',
+        backgroundColor: PURPLE,
+    },
     bookStripText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
-    // empty state
     emptyState: { alignItems: 'center', paddingTop: 60, paddingHorizontal: 30, gap: 10 },
     emptyEmoji: { fontSize: 52 },
     emptyTitle: { fontSize: 18, fontWeight: '800' },
     emptySub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
-    clearBtn: { marginTop: 8, paddingHorizontal: 24, paddingVertical: 11, backgroundColor: PURPLE, borderRadius: 12 },
+    clearBtn: {
+        marginTop: 8,
+        paddingHorizontal: 24,
+        paddingVertical: 11,
+        backgroundColor: PURPLE,
+        borderRadius: 12,
+    },
     clearBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });

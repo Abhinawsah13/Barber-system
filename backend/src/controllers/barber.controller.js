@@ -3,23 +3,17 @@ import BarberProfile from '../models/BarberProfile.js';
 import User from '../models/User.js';
 import Service from '../models/Service.js';
 
-// ─── Allowed service categories ─────────────────────────────────────────────
 export const VALID_SERVICES = [
     'Haircut', 'Beard Trim', 'Hair Color', 'Facial', 'Kids Cut', 'Shave', 'Others'
 ];
 
-// ─── POST /barbers/profile — Create or upsert barber profile ─────────────────
+// ─── POST/PUT /barbers/profile ────────────────────────────────────────────────
 export const createOrUpdateProfile = async (req, res) => {
     try {
         const userId = req.user._id;
         const {
-            bio,
-            experience_years,
-            services = [],
-            availability,
-            service_type,
-            profile_image,
-            location,
+            bio, experience_years, services = [],
+            availability, service_type, profile_image, location,
         } = req.body;
 
         const profileData = {
@@ -35,6 +29,14 @@ export const createOrUpdateProfile = async (req, res) => {
                     home: !!req.body.serviceModes.home
                 }
             }),
+            ...(location && {
+                location: {
+                    ...(location.address !== undefined && { address: location.address }),
+                    ...(location.city !== undefined && { city: location.city }),
+                    ...(location.fullAddress !== undefined && { fullAddress: location.fullAddress }),
+                    ...(location.serviceArea !== undefined && { serviceArea: location.serviceArea }),
+                }
+            }),
         };
 
         let profile = await BarberProfile.findOneAndUpdate(
@@ -43,7 +45,6 @@ export const createOrUpdateProfile = async (req, res) => {
             { new: true, upsert: true, setDefaultsOnInsert: true }
         ).populate('user', 'username email profile_image phone');
 
-        // Update profile image on User document if provided
         if (profile_image) {
             await User.findByIdAndUpdate(userId, { profile_image });
         }
@@ -59,67 +60,84 @@ export const createOrUpdateProfile = async (req, res) => {
     }
 };
 
-// ─── GET /barbers — List barbers with optional specialization filter ──────────
+// ─── GET /barbers ─────────────────────────────────────────────────────────────
 export const getBarbers = async (req, res) => {
     try {
         const {
-            services,         // comma separated list
-            type,             // 'salon', 'home', or 'all'
-            service_type,     // legacy support
+            services,
+            type,
+            service_type,
             isOnline,
             verified,
+            city,
+            search,
             page = 1,
             limit = 20,
         } = req.query;
 
+        // ── Build DB filter — NO city here, done in JS below ─────────────────
         const filter = {};
 
-        // Services filter — optimized with $in and index
-        if (services) {
+        // Service filter
+        if (services && services.toLowerCase() !== 'all') {
             const tags = services.split(',').map(t => t.trim());
             filter.services = { $in: tags.map(t => new RegExp(t, 'i')) };
         }
 
-        // Service Type Filter (Home/Salon/All)
-        // We prefer checking the serviceModes booleans
+        // Service type filter
         const activeType = type || service_type;
-
         if (activeType === 'home') {
             filter['serviceModes.home'] = true;
         } else if (activeType === 'salon') {
             filter['serviceModes.salon'] = true;
         } else {
-            // "All" or default: show if either mode is enabled
             filter.$or = [
                 { 'serviceModes.home': true },
-                { 'serviceModes.salon': { $ne: false } }
+                { 'serviceModes.salon': true }
             ];
         }
 
         if (isOnline !== undefined) filter.isOnline = isOnline === 'true';
         if (verified !== undefined) filter.is_verified_barber = verified === 'true';
 
+        // ── Fetch all from DB ─────────────────────────────────────────────────
+        const allBarbers = await BarberProfile.find(filter)
+            .populate('user', 'username profile_image phone')
+            .sort({ 'rating.average': -1 })
+            .lean();
+
+        // Remove deleted users
+        let validBarbers = allBarbers.filter(b => b.user);
+
+        // ✅ City/location filter in JavaScript — guaranteed to work
+        const searchTerm = (city || search || '').trim();
+        if (searchTerm) {
+            const regex = new RegExp(searchTerm, 'i');
+            validBarbers = validBarbers.filter(b => {
+                const loc = b.location || {};
+                return (
+                    regex.test(loc.city || '') ||
+                    regex.test(loc.address || '') ||
+                    regex.test(loc.serviceArea || '') ||
+                    regex.test(loc.fullAddress || '') ||
+                    regex.test(b.user?.username || '') ||
+                    (b.services || []).some(s => regex.test(s))
+                );
+            });
+        }
+
+        console.log(`[getBarbers] search="${searchTerm || 'none'}" → DB:${allBarbers.length} → Filtered:${validBarbers.length}`);
+
+        // Pagination
         const skip = (Number(page) - 1) * Number(limit);
-
-        const [barbers, total] = await Promise.all([
-            BarberProfile.find(filter)
-                .populate('user', 'username profile_image phone')
-                .sort({ 'rating.average': -1 })
-                .skip(skip)
-                .limit(Number(limit))
-                .lean(),
-            BarberProfile.countDocuments(filter),
-        ]);
-
-        // Filter out profiles with deleted user accounts
-        const validBarbers = barbers.filter(b => b.user);
+        const paginated = validBarbers.slice(skip, skip + Number(limit));
 
         return res.json({
             success: true,
-            count: validBarbers.length,
-            total,
+            count: paginated.length,
+            total: validBarbers.length,
             page: Number(page),
-            data: validBarbers,
+            data: paginated,
         });
     } catch (error) {
         console.error('[getBarbers]', error);
@@ -127,7 +145,7 @@ export const getBarbers = async (req, res) => {
     }
 };
 
-// ─── GET /barbers/:id — Single barber profile with services ──────────────────
+// ─── GET /barbers/:id ─────────────────────────────────────────────────────────
 export const getBarberById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -139,7 +157,6 @@ export const getBarberById = async (req, res) => {
         ]);
 
         if (!profile) {
-            // Check if user exists but hasn't set up profile yet
             const user = await User.findById(id);
             if (user?.user_type === 'barber') {
                 return res.status(404).json({
@@ -161,7 +178,7 @@ export const getBarberById = async (req, res) => {
     }
 };
 
-// ─── GET /barbers/services — Return valid service category list ─────────────────────
+// ─── GET /barbers/services-list ───────────────────────────────────────────────
 export const getServiceCategories = async (_req, res) => {
     return res.json({ success: true, data: VALID_SERVICES });
 };

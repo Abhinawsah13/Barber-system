@@ -108,32 +108,36 @@ export default function ForgotPasswordScreen({ navigation }) {
           <Text style={[styles.backText, { color: theme.primary }]}>← Back</Text>
         </TouchableOpacity>
 
-        <View style={styles.contentContainer}>
-          <Text style={[styles.title, { color: theme.text }]}>Forgot Password?</Text>
-          <Text style={[styles.subtitle, { color: theme.textLight }]}>Enter email to reset</Text>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+            <View style={styles.contentContainer}>
+              <Text style={[styles.title, { color: theme.text }]}>Forgot Password?</Text>
+              <Text style={[styles.subtitle, { color: theme.textLight }]}>Enter email to reset</Text>
 
-          <TextInput
-            style={[styles.input, {
-              backgroundColor: theme.inputBg,
-              color: theme.text,
-              borderColor: theme.border
-            }]}
-            placeholder="your@email.com"
-            placeholderTextColor={theme.textLight}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+              <TextInput
+                style={[styles.input, {
+                  backgroundColor: theme.inputBg,
+                  color: theme.text,
+                  borderColor: theme.border
+                }]}
+                placeholder="your@email.com"
+                placeholderTextColor={theme.textLight}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
 
-          <TouchableOpacity
-            style={[styles.button, { backgroundColor: email ? theme.primary : theme.buttonDisabled }]}
-            onPress={sendResetCode}
-            disabled={!email || loading}
-          >
-            {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Send Reset Code</Text>}
-          </TouchableOpacity>
-        </View>
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: email ? theme.primary : theme.buttonDisabled }]}
+                onPress={sendResetCode}
+                disabled={!email || loading}
+              >
+                {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Send Reset Code</Text>}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -149,53 +153,57 @@ export default function ForgotPasswordScreen({ navigation }) {
           <Text style={[styles.backText, { color: theme.primary }]}>← Back</Text>
         </TouchableOpacity>
 
-        <View style={styles.contentContainer}>
-          <Text style={[styles.title, { color: theme.text }]}>Enter Reset Code</Text>
-          <Text style={[styles.subtitle, { color: theme.textLight }]}>
-            Check <Text style={{ fontWeight: 'bold', color: theme.primary }}>{resetEmail}</Text> for 6-digit code
-          </Text>
-
-          {/* 🔥 NUMBERS-ONLY OTP INPUT */}
-          <TextInput
-            style={[
-              styles.otpInput,
-              {
-                backgroundColor: theme.inputBg,
-                color: theme.text,
-                borderColor: otpCode.length === 6 ? theme.success : theme.primary
-              }
-            ]}
-            placeholder="123456"
-            placeholderTextColor={theme.textLight}
-            keyboardType="number-pad"           // 🔥 NUMBERS ONLY
-            maxLength={6}                       // 🔥 6 DIGITS
-            value={otpCode}
-            onChangeText={(text) => {
-              // 🔥 FORCE NUMBERS ONLY
-              setOtpCode(text.replace(/[^0-9]/g, '').slice(0, 6));
-            }}
-            autoFocus
-          />
-
-          <TouchableOpacity
-            style={[
-              styles.button,
-              { backgroundColor: otpCode.length === 6 ? theme.primary : theme.buttonDisabled }
-            ]}
-            onPress={verifyResetOtp}
-            disabled={otpCode.length !== 6 || loading}
-          >
-            {loading ? <ActivityIndicator color="#FFF" /> : (
-              <Text style={styles.buttonText}>
-                Verify ({otpCode.length}/6)
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+            <View style={styles.contentContainer}>
+              <Text style={[styles.title, { color: theme.text }]}>Enter Reset Code</Text>
+              <Text style={[styles.subtitle, { color: theme.textLight }]}>
+                Check <Text style={{ fontWeight: 'bold', color: theme.primary }}>{resetEmail}</Text> for 6-digit code
               </Text>
-            )}
-          </TouchableOpacity>
 
-          <TouchableOpacity onPress={sendResetCode} disabled={loading}>
-            <Text style={[styles.resendText, { color: theme.primary }]}>Resend Code</Text>
-          </TouchableOpacity>
-        </View>
+              {/* 🔥 NUMBERS-ONLY OTP INPUT */}
+              <TextInput
+                style={[
+                  styles.otpInput,
+                  {
+                    backgroundColor: theme.inputBg,
+                    color: theme.text,
+                    borderColor: otpCode.length === 6 ? theme.success : theme.primary
+                  }
+                ]}
+                placeholder="123456"
+                placeholderTextColor={theme.textLight}
+                keyboardType="number-pad"           // 🔥 NUMBERS ONLY
+                maxLength={6}                       // 🔥 6 DIGITS
+                value={otpCode}
+                onChangeText={(text) => {
+                  // 🔥 FORCE NUMBERS ONLY
+                  setOtpCode(text.replace(/[^0-9]/g, '').slice(0, 6));
+                }}
+                autoFocus
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.button,
+                  { backgroundColor: otpCode.length === 6 ? theme.primary : theme.buttonDisabled }
+                ]}
+                onPress={verifyResetOtp}
+                disabled={otpCode.length !== 6 || loading}
+              >
+                {loading ? <ActivityIndicator color="#FFF" /> : (
+                  <Text style={styles.buttonText}>
+                    Verify ({otpCode.length}/6)
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={sendResetCode} disabled={loading}>
+                <Text style={[styles.resendText, { color: theme.primary }]}>Resend Code</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -211,31 +219,35 @@ export default function ForgotPasswordScreen({ navigation }) {
           <Text style={[styles.backText, { color: theme.primary }]}>← Back</Text>
         </TouchableOpacity>
 
-        <View style={styles.contentContainer}>
-          <Text style={[styles.title, { color: theme.text }]}>New Password</Text>
-          <Text style={[styles.subtitle, { color: theme.textLight }]}>Enter your new password</Text>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+            <View style={styles.contentContainer}>
+              <Text style={[styles.title, { color: theme.text }]}>New Password</Text>
+              <Text style={[styles.subtitle, { color: theme.textLight }]}>Enter your new password</Text>
 
-          <TextInput
-            style={[styles.input, {
-              backgroundColor: theme.inputBg,
-              color: theme.text,
-              borderColor: theme.border
-            }]}
-            placeholder="New Password"
-            placeholderTextColor={theme.textLight}
-            value={newPassword}
-            onChangeText={setNewPassword}
-            secureTextEntry
-          />
+              <TextInput
+                style={[styles.input, {
+                  backgroundColor: theme.inputBg,
+                  color: theme.text,
+                  borderColor: theme.border
+                }]}
+                placeholder="New Password"
+                placeholderTextColor={theme.textLight}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+              />
 
-          <TouchableOpacity
-            style={[styles.button, { backgroundColor: newPassword ? theme.primary : theme.buttonDisabled }]}
-            onPress={resetPassword}
-            disabled={!newPassword || loading}
-          >
-            {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Reset Password</Text>}
-          </TouchableOpacity>
-        </View>
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: newPassword ? theme.primary : theme.buttonDisabled }]}
+                onPress={resetPassword}
+                disabled={!newPassword || loading}
+              >
+                {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Reset Password</Text>}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }

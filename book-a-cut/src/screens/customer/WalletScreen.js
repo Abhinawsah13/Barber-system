@@ -58,9 +58,9 @@ export default function WalletScreen({ navigation }) {
             "Select amount to top-up:",
             [
                 { text: "Cancel", style: "cancel" },
-                { text: "$10", onPress: () => processTopUp(10) },
-                { text: "$50", onPress: () => processTopUp(50) },
-                { text: "$100", onPress: () => processTopUp(100) },
+                { text: "Rs 500", onPress: () => processTopUp(500) },
+                { text: "Rs 1000", onPress: () => processTopUp(1000) },
+                { text: "Rs 2000", onPress: () => processTopUp(2000) },
             ]
         );
     };
@@ -69,7 +69,7 @@ export default function WalletScreen({ navigation }) {
         try {
             setLoading(true);
             await addMoneyToWallet(amount, 'Bank Card'); // Simulating card source
-            Alert.alert("Success", `$${amount} added to your wallet!`);
+            Alert.alert("Success", `Rs ${amount} added to your wallet!`);
             fetchWalletData();
         } catch (error) {
             Alert.alert("Error", "Transaction failed.");
@@ -108,7 +108,7 @@ export default function WalletScreen({ navigation }) {
                 {/* Balance Card */}
                 <View style={[styles.balanceCard, { backgroundColor: theme.primary, shadowColor: theme.primary }]}>
                     <Text style={styles.balanceLabel}>Total Balance</Text>
-                    <Text style={styles.balanceAmount}>${balance.toFixed(2)}</Text>
+                    <Text style={styles.balanceAmount}>Rs {balance.toFixed(2)}</Text>
                     <View style={styles.balanceActions}>
                         <TouchableOpacity style={styles.actionBtn} onPress={handleAddMoney}>
                             <Text style={styles.actionIcon}>+</Text>
@@ -127,7 +127,7 @@ export default function WalletScreen({ navigation }) {
                     <View>
                         <Text style={styles.rewardsTitle}>Loyalty Points</Text>
                         <Text style={styles.rewardsPoints}>{loyaltyPoints} pts</Text>
-                        <Text style={styles.rewardsSub}>Get $5 off for every 500 pts</Text>
+                        <Text style={styles.rewardsSub}>Get Rs 500 off for every 500 pts</Text>
                     </View>
                     <View style={styles.crownIcon}>
                         <Text style={{ fontSize: 30 }}>👑</Text>
@@ -178,7 +178,7 @@ export default function WalletScreen({ navigation }) {
                                 <Text style={[styles.txDate, { color: theme.textMuted }]}>{formatDate(tx.created_at)}</Text>
                             </View>
                             <Text style={[styles.txAmount, { color: tx.type === 'credit' ? theme.success : theme.error }]}>
-                                {tx.type === 'credit' ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
+                                {tx.type === 'credit' ? '+' : '-'}Rs {Math.abs(tx.amount).toFixed(2)}
                             </Text>
                         </View>
                     ))

@@ -61,6 +61,14 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
+    suspended_reason: {
+        type: String,
+        default: ''
+    },
+    suspended_at: {
+        type: Date,
+        default: null
+    },
     phone: {
         type: String,
         default: ''

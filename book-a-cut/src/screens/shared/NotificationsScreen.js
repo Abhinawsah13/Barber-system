@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { getNotifications, markNotificationAsRead } from '../../services/api';
 import { formatDateTime } from '../../utils/dateUtils';
-import { getUserData } from '../../services/TokenManager';
 
 export default function NotificationsScreen({ navigation }) {
     const { theme } = useTheme();
@@ -36,24 +35,14 @@ export default function NotificationsScreen({ navigation }) {
             setNotifications(prev => prev.map(n => n._id === item._id ? { ...n, is_read: true } : n));
         }
 
-        // Navigate based on user role
-        try {
-            const userData = await getUserData();
-            const bookingId = item.metadata?.bookingId;
-
-            if (bookingId) {
-                if (userData?.user_type === 'barber') {
-                    // Barbers manage bookings on their home dashboard
-                    navigation.navigate('BarberHome', { bookingId });
-                } else {
-                    // Customers view their bookings in MyBookings
-                    navigation.navigate('MyBookings', { bookingId });
-                }
-            }
-        } catch (error) {
-            console.error('Error in notification click:', error);
+        const bookingId = item.metadata?.bookingId;
+        if (bookingId) {
+            // Both customers and barbers navigate to MyBookings with the specific bookingId.
+            // MyBookings will auto-scroll to and highlight that booking.
+            navigation.navigate('MyBookings', { bookingId });
         }
     };
+
 
     const renderItem = ({ item }) => (
         <TouchableOpacity

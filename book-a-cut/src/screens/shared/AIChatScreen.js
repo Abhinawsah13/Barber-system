@@ -9,10 +9,14 @@ import {
     KeyboardAvoidingView,
     Platform,
     Image,
-    SafeAreaView
+    ActivityIndicator
 } from 'react-native';
-import { THEME } from '../../theme/theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { getToken } from '../../services/TokenManager';
+import { BASE_URL } from '../../services/api';
 
 export default function AIChatScreen({ navigation }) {
     const [messages, setMessages] = useState([
@@ -25,40 +29,103 @@ export default function AIChatScreen({ navigation }) {
     ]);
     const [inputText, setInputText] = useState('');
     const [isTyping, setIsTyping] = useState(false);
+    const [recording, setRecording] = useState();
+    const [isRecording, setIsRecording] = useState(false);
     const flatListRef = useRef();
 
-    const handleSend = async () => {
-        if (inputText.trim().length === 0) return;
+    const startRecording = async () => {
+        if (isRecording || recording) return;
+        try {
+            console.log('Requesting permissions..');
+            const perm = await Audio.requestPermissionsAsync();
+            if (perm.status === 'granted') {
+                await Audio.setAudioModeAsync({
+                    allowsRecordingIOS: true,
+                    playsInSilentModeIOS: true,
+                    shouldDuckAndroid: true,
+                    playThroughEarpieceAndroid: false,
+                    staysActiveInBackground: false,
+                });
+                console.log('Starting recording..');
+                Speech.stop(); // Stop any AI talking
+                
+                const { recording: newRecording } = await Audio.Recording.createAsync(
+                    Audio.RecordingOptionsPresets.HIGH_QUALITY
+                );
+                setRecording(newRecording);
+                setIsRecording(true);
+            }
+        } catch (err) {
+            console.error('Failed to start recording', err);
+            setIsRecording(false);
+            setRecording(null);
+        }
+    };
+
+    const stopRecording = async () => {
+        if (!recording) return;
+        setIsRecording(false);
+        console.log('Stopping recording..');
+        await recording.stopAndUnloadAsync();
+        const uri = recording.getURI();
+        setRecording(undefined);
+
+        // Convert Audio to Base64
+        console.log('Reading base64 from', uri);
+        const base64Audio = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+        });
+
+        // Send immediately to AI
+        handleSend(base64Audio);
+    };
+
+    const handleSend = async (audioDataRaw = null) => {
+        const isVoiceMode = typeof audioDataRaw === 'string';
+        if (!isVoiceMode && inputText.trim().length === 0) return;
 
         const newUserMsg = {
             id: Date.now().toString(),
-            text: inputText,
+            text: isVoiceMode ? "🎤 Voice Message" : inputText,
             sender: 'user',
             timestamp: new Date().toISOString(),
         };
 
         setMessages(prev => [...prev, newUserMsg]);
-        setInputText('');
+        if (!isVoiceMode) setInputText('');
         setIsTyping(true);
 
-        // Call Backend AI
         try {
             const token = await getToken();
-            const response = await fetch('http://192.168.1.79:3000/api/ai/chat', {
+            const apiUrl = `${BASE_URL}/v2/ai/chat`;
+            console.log(`[AI] Sending request to: ${apiUrl}`);
+            
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ message: inputText.trim() })
+                body: JSON.stringify({ 
+                    message: isVoiceMode ? '' : inputText.trim(),
+                    audioData: isVoiceMode ? audioDataRaw : null,
+                    history: messages.map(m => ({ role: m.sender, text: m.text }))
+                })
             });
             const data = await response.json();
 
+            // Speak the reply out loud! 🗣️
+            if (data.reply) {
+                console.log('[AI] Assistant says:', data.reply);
+                Speech.speak(data.reply, { language: 'en', rate: 1.05 });
+            }
+
             const newAiMsg = {
                 id: Date.now().toString(),
-                text: data.reply || "I'm sorry, I couldn't process that.",
+                text: data.reply || data.message || "I'm sorry, I couldn't process that.",
                 sender: 'ai',
                 timestamp: new Date().toISOString(),
+                toolUsed: data.toolUsed
             };
 
             setMessages(prev => [...prev, newAiMsg]);
@@ -90,12 +157,19 @@ export default function AIChatScreen({ navigation }) {
                 )}
                 <View style={[
                     styles.messageContent,
-                    isUser ? styles.userContent : styles.aiContent
+                    isUser ? styles.userContent : styles.aiContent,
+                    item.toolUsed && { borderColor: '#4CAF50', borderWidth: 2 } // Highlight if AI modified data
                 ]}>
                     <Text style={[
                         styles.messageText,
                         isUser ? styles.userText : styles.aiText
                     ]}>{item.text}</Text>
+                    
+                    {item.toolUsed && (
+                        <Text style={{ fontSize: 10, color: '#4CAF50', marginTop: 4 }}>
+                            ✓ Data updated via {item.toolUsed}
+                        </Text>
+                    )}
                 </View>
             </View>
         );
@@ -117,38 +191,56 @@ export default function AIChatScreen({ navigation }) {
                 </TouchableOpacity>
             </View>
 
-            {/* Chat Area */}
-            <FlatList
-                ref={flatListRef}
-                data={messages}
-                renderItem={renderMessage}
-                keyExtractor={item => item.id}
-                contentContainerStyle={styles.chatContent}
-                onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            />
-
-            {/* Typing Indicator */}
-            {isTyping && (
-                <View style={styles.typingContainer}>
-                    <Text style={styles.typingText}>AI is typing...</Text>
-                </View>
-            )}
-
-            {/* Input Area */}
             <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : "height"}
                 keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+                style={{ flex: 1 }}
             >
-                <View style={styles.inputContainer}>
-                    <TouchableOpacity style={styles.attachBtn}>
-                        <Text style={{ fontSize: 20 }}>📷</Text>
+                {/* Chat Area */}
+                <FlatList
+                    ref={flatListRef}
+                    data={messages}
+                    renderItem={renderMessage}
+                    keyExtractor={item => item.id}
+                    contentContainerStyle={styles.chatContent}
+                    onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                />
+
+                {/* Typing Indicator */}
+                {isTyping && (
+                    <View style={styles.typingContainer}>
+                        <Text style={styles.typingText}>AI is typing...</Text>
+                    </View>
+                )}
+
+                {/* Input Area */}
+                <View style={{ paddingHorizontal: 15, paddingBottom: 5 }}>
+                    <Text style={{ fontSize: 12, color: '#999', textAlign: 'center' }}>
+                        🎤 Use your keyboard's microphone or Hold the icon below
+                    </Text>
+                </View>
+                <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? 30 : 20 }]}>
+                    <TouchableOpacity 
+                        style={[
+                            styles.attachBtn, 
+                            isRecording && { backgroundColor: '#ff4444', borderRadius: 20, transform: [{ scale: 1.1 }] }
+                        ]} 
+                        onPressIn={startRecording}
+                        onPressOut={stopRecording}
+                    >
+                        {isRecording ? (
+                             <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                             <Text style={{ fontSize: 20 }}>🎙️</Text>
+                        )}
                     </TouchableOpacity>
                     <TextInput
-                        style={styles.input}
-                        placeholder="Type a message..."
-                        placeholderTextColor="#999"
+                        style={[styles.input, isRecording && { opacity: 0.5 }]}
+                        placeholder={isRecording ? "🔴 Listening... Release to Send" : "Type a message..."}
+                        placeholderTextColor={isRecording ? "#ff4444" : "#999"}
                         value={inputText}
                         onChangeText={setInputText}
+                        editable={!isRecording}
                     />
                     <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
                         <Text style={{ fontSize: 18, color: '#FFF' }}>➤</Text>

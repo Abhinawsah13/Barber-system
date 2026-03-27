@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
     View, Text, StyleSheet, ScrollView, TextInput,
-    TouchableOpacity, Alert, ActivityIndicator, Image, Platform,
+    TouchableOpacity, Alert, ActivityIndicator, Image, Platform, KeyboardAvoidingView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from 'expo-image-picker';
@@ -234,7 +234,7 @@ export default function BarberEditProfileScreen({ navigation }) {
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
 
-            {/* ── Header ─────────────────────────────────────────────────── */}
+            {/* Header */}
             <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <Text style={[styles.backText, { color: theme.text }]}>←</Text>
@@ -243,9 +243,10 @@ export default function BarberEditProfileScreen({ navigation }) {
                 <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+                <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-                {/* ── SERVICE MODES ────────────────────────────────────────── */}
+                {/* SERVICE MODES */}
                 <Card theme={theme}>
                     <SectionTitle theme={theme}>Service Modes</SectionTitle>
                     <View style={styles.modeToggleRow}>
@@ -277,7 +278,7 @@ export default function BarberEditProfileScreen({ navigation }) {
                     </View>
                 </Card>
 
-                {/* ── SUBSCRIPTION PLAN ────────────────────────────────────── */}
+                {/* SUBSCRIPTION PLAN */}
                 <Card theme={theme}>
                     <SectionTitle theme={theme}>Subscription Plan</SectionTitle>
                     <View style={styles.typeRow}>
@@ -306,7 +307,7 @@ export default function BarberEditProfileScreen({ navigation }) {
                     </View>
                 </Card>
 
-                {/* ── PERSONAL INFO ────────────────────────────────────────── */}
+                {/* PERSONAL INFO */}
                 <Card theme={theme}>
                     <SectionTitle theme={theme}>Personal Info</SectionTitle>
 
@@ -316,9 +317,9 @@ export default function BarberEditProfileScreen({ navigation }) {
                         ) : (
                             <View style={[styles.photo, styles.photoPlaceholder, { borderColor: theme.primary }]}>
                                 <Text style={{ fontSize: 34, color: theme.primary }}>✂</Text>
-                                <View style={[styles.photoBadge, { backgroundColor: theme.primary }]}>
+                                <div style={[styles.photoBadge, { backgroundColor: theme.primary }]}>
                                     <Text style={{ color: '#fff', fontSize: 14, lineHeight: 18 }}>−</Text>
-                                </View>
+                                </div>
                             </View>
                         )}
                         <Text style={[styles.tapPhoto, { color: theme.textMuted }]}>Tap to upload photo</Text>
@@ -333,7 +334,7 @@ export default function BarberEditProfileScreen({ navigation }) {
                         placeholder="e.g. 98XXXXXXXX" keyboardType="phone-pad" />
                 </Card>
 
-                {/* ── LOCATION DETAILS (Salon / Both) ─────────────────────── */}
+                {/* LOCATION DETAILS (Salon / Both) */}
                 {showSalon && (
                     <Card theme={theme}>
                         <SectionTitle theme={theme}>Location Details</SectionTitle>
@@ -352,7 +353,7 @@ export default function BarberEditProfileScreen({ navigation }) {
                     </Card>
                 )}
 
-                {/* ── HOME SERVICE AREA (Home / Both) ─────────────────────── */}
+                {/* HOME SERVICE AREA (Home / Both) */}
                 {showHome && (
                     <Card theme={theme}>
                         <SectionTitle theme={theme} accent={showBoth}>
@@ -369,7 +370,7 @@ export default function BarberEditProfileScreen({ navigation }) {
 
                         <FieldLabel theme={theme}>Area / Neighbourhood</FieldLabel>
                         <FieldInput theme={theme} value={serviceArea} onChangeText={setServiceArea}
-                            placeholder="e.g. Thamel, Baneshwor" />
+                            placeholder="Enter service area" />
 
                         <View style={[styles.infoBox, { backgroundColor: theme.primary + '15', borderColor: theme.primary + '40' }]}>
                             <Text style={{ color: theme.primary, fontSize: 12, lineHeight: 17 }}>
@@ -381,7 +382,7 @@ export default function BarberEditProfileScreen({ navigation }) {
                     </Card>
                 )}
 
-                {/* ── SERVICES ───────────────────────────────────────────── */}
+                {/* SERVICES */}
                 <Card theme={theme}>
                     <RowLabel theme={theme}>Services</RowLabel>
                     <View style={styles.chipsWrap}>
@@ -417,130 +418,7 @@ export default function BarberEditProfileScreen({ navigation }) {
                     )}
                 </Card>
 
-                {/* ── WORKING DAYS + HOURS (Salon) ─────────────────────────── */}
-                {showSalon && (
-                    <Card theme={theme}>
-                        <SectionTitle theme={theme} accent={showBoth}>Salon Working Hours</SectionTitle>
-                        <View style={styles.daysRow}>
-                            {DAYS.map(day => (
-                                <TouchableOpacity
-                                    key={day}
-                                    style={[
-                                        styles.dayChip,
-                                        { borderColor: theme.border, backgroundColor: theme.background },
-                                        salonDays.includes(day) && { backgroundColor: theme.primary, borderColor: theme.primary },
-                                    ]}
-                                    onPress={() => toggleSalonDay(day)}
-                                >
-                                    <Text style={[
-                                        styles.dayTxt, { color: theme.textMuted },
-                                        salonDays.includes(day) && { color: '#fff' },
-                                    ]}>{day}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-
-                        <View style={styles.hoursRow}>
-                            <View style={styles.hourBox}>
-                                <Text style={[styles.hourLabel, { color: theme.textMuted }]}>Open</Text>
-                                <TextInput
-                                    style={[styles.hourInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-                                    value={salonOpen}
-                                    onChangeText={setSalonOpen}
-                                    placeholder="09:00"
-                                    placeholderTextColor={theme.textMuted}
-                                />
-                            </View>
-                            <Text style={[styles.hourDash, { color: theme.textMuted }]}>—</Text>
-                            <View style={styles.hourBox}>
-                                <Text style={[styles.hourLabel, { color: theme.textMuted }]}>Close</Text>
-                                <TextInput
-                                    style={[styles.hourInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-                                    value={salonClose}
-                                    onChangeText={setSalonClose}
-                                    placeholder="19:00"
-                                    placeholderTextColor={theme.textMuted}
-                                />
-                            </View>
-                        </View>
-                    </Card>
-                )}
-
-                {/* ── WORKING DAYS + HOURS (Home) ──────────────────────────── */}
-                {showHome && (
-                    <Card theme={theme}>
-                        <SectionTitle theme={theme} accent={showBoth}>Home Service Hours</SectionTitle>
-                        <View style={styles.daysRow}>
-                            {DAYS.map(day => (
-                                <TouchableOpacity
-                                    key={day}
-                                    style={[
-                                        styles.dayChip,
-                                        { borderColor: theme.border, backgroundColor: theme.background },
-                                        homeDays.includes(day) && { backgroundColor: theme.primary, borderColor: theme.primary },
-                                    ]}
-                                    onPress={() => toggleHomeDay(day)}
-                                >
-                                    <Text style={[
-                                        styles.dayTxt, { color: theme.textMuted },
-                                        homeDays.includes(day) && { color: '#fff' },
-                                    ]}>{day}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-
-                        <View style={styles.hoursRow}>
-                            <View style={styles.hourBox}>
-                                <Text style={[styles.hourLabel, { color: theme.textMuted }]}>Open</Text>
-                                <TextInput
-                                    style={[styles.hourInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-                                    value={homeOpen}
-                                    onChangeText={setHomeOpen}
-                                    placeholder="10:00"
-                                    placeholderTextColor={theme.textMuted}
-                                />
-                            </View>
-                            <Text style={[styles.hourDash, { color: theme.textMuted }]}>—</Text>
-                            <View style={styles.hourBox}>
-                                <Text style={[styles.hourLabel, { color: theme.textMuted }]}>Close</Text>
-                                <TextInput
-                                    style={[styles.hourInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-                                    value={homeClose}
-                                    onChangeText={setHomeClose}
-                                    placeholder="18:00"
-                                    placeholderTextColor={theme.textMuted}
-                                />
-                            </View>
-                        </View>
-                    </Card>
-                )}
-
-                {/* ── EXPERIENCE (Home only) ───────────────────────────────── */}
-                {!showSalon && (
-                    <Card theme={theme}>
-                        <RowLabel theme={theme}>Experience</RowLabel>
-                        <View style={styles.expRow}>
-                            {EXP_OPTIONS.map(({ label, value }) => (
-                                <TouchableOpacity
-                                    key={value}
-                                    style={[
-                                        styles.expBtn,
-                                        { borderColor: theme.border, backgroundColor: theme.background },
-                                        expValue === value && { backgroundColor: theme.primary, borderColor: theme.primary },
-                                    ]}
-                                    onPress={() => setExpValue(value)}
-                                >
-                                    <Text style={[
-                                        styles.expTxt, { color: theme.textMuted },
-                                        expValue === value && { color: '#fff', fontWeight: '700' },
-                                    ]}>{label}</Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    </Card>
-                )}
-
-                {/* ── PRICING ────────────────────────────────────────────── */}
+                {/* PRICING */}
                 {(salonEnabled || homeEnabled) && (
                     <Card theme={theme}>
                         <SectionTitle theme={theme}>Pricing Configuration</SectionTitle>
@@ -588,32 +466,10 @@ export default function BarberEditProfileScreen({ navigation }) {
                                 </View>
                             </View>
                         )}
-
-                        <Text style={[styles.priceNote, { color: theme.textMuted, marginTop: 12 }]}>
-                            {homeEnabled ? "Customer's total = Home Base Price + Service Price + Travel Fee" : "Customers pay the price of the services they book."}
-                        </Text>
                     </Card>
                 )}
 
-                {/* ── RATING (read-only) ───────────────────────────────────── */}
-                {ratingData.averageRating > 0 && (
-                    <Card theme={theme}>
-                        <SectionTitle theme={theme}>Your Rating</SectionTitle>
-                        <View style={styles.ratingRow}>
-                            <Text style={[styles.ratingBig, { color: theme.primary }]}>
-                                {ratingData.averageRating.toFixed(1)}
-                            </Text>
-                            <View>
-                                <StarRating rating={Math.round(ratingData.averageRating)} readOnly size={22} color="#f59e0b" emptyColor={theme.border} />
-                                <Text style={{ color: theme.textMuted, fontSize: 13, marginTop: 4 }}>
-                                    {ratingData.totalReviews} {ratingData.totalReviews === 1 ? 'review' : 'reviews'}
-                                </Text>
-                            </View>
-                        </View>
-                    </Card>
-                )}
-
-                {/* ── SAVE ─────────────────────────────────────────────────── */}
+                {/* SAVE */}
                 <TouchableOpacity
                     style={[styles.saveBtn, { backgroundColor: theme.primary }, saving && { opacity: 0.7 }]}
                     onPress={handleSave}
@@ -626,7 +482,8 @@ export default function BarberEditProfileScreen({ navigation }) {
                 </TouchableOpacity>
 
                 <View style={{ height: 40 }} />
-            </ScrollView>
+                </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
@@ -657,10 +514,7 @@ function FieldInput({ theme, ...props }) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1,
-    },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1 },
     backBtn: { padding: 4 },
     backText: { fontSize: 24, fontWeight: 'bold' },
     headerTitle: { fontSize: 18, fontWeight: '700' },
@@ -670,96 +524,35 @@ const styles = StyleSheet.create({
     sectionTitle: { fontSize: 15, fontWeight: '700', marginBottom: 12 },
     rowLabel: { fontSize: 14, fontWeight: '600', marginBottom: 10 },
     fieldLabel: { fontSize: 13, fontWeight: '600', marginTop: 10, marginBottom: 6, color: '#888' },
-    input: {
-        borderWidth: 1, borderRadius: 10,
-        paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 12 : 9,
-        fontSize: 15, marginBottom: 4,
-    },
+    input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 12 : 9, fontSize: 15, marginBottom: 4 },
 
-    // Service modes
     modeToggleRow: { flexDirection: 'row', gap: 12 },
-    modeToggleBtn: {
-        flex: 1, padding: 16, borderRadius: 14, borderWidth: 1.5,
-        alignItems: 'center', position: 'relative'
-    },
+    modeToggleBtn: { flex: 1, padding: 16, borderRadius: 14, borderWidth: 1.5, alignItems: 'center', position: 'relative' },
     modeToggleTxt: { fontSize: 13, fontWeight: '600', marginTop: 8 },
-    checkbox: {
-        position: 'absolute', top: 8, right: 8,
-        width: 18, height: 18, borderRadius: 9,
-        borderWidth: 1.5, justifyContent: 'center', alignItems: 'center'
-    },
+    checkbox: { position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, justifyContent: 'center', alignItems: 'center' },
 
     typeRow: { flexDirection: 'row', gap: 8 },
-    typeBtn: { flex: 1, paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, alignItems: 'center' },
-    typeTxt: { fontSize: 14 },
-
-    // Subscription
     planCard: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1.5, alignItems: 'center' },
     planLabel: { fontSize: 13 },
     planSub: { fontSize: 10, marginTop: 2, textAlign: 'center' },
 
-    // Photo
     photoWrap: { alignItems: 'center', marginBottom: 12, marginTop: 4 },
     photo: { width: 90, height: 90, borderRadius: 45, marginBottom: 6 },
     photoPlaceholder: { borderWidth: 2, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
-    photoBadge: {
-        position: 'absolute', bottom: 2, right: 2,
-        width: 22, height: 22, borderRadius: 11,
-        justifyContent: 'center', alignItems: 'center',
-    },
+    photoBadge: { position: 'absolute', bottom: 2, right: 2, width: 22, height: 22, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
     tapPhoto: { fontSize: 12 },
 
-    // Info box
     infoBox: { marginTop: 12, padding: 10, borderRadius: 8, borderWidth: 1 },
 
-    // Specialties
     chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
     chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
     chipTxt: { fontSize: 13 },
 
-    // Working days
-    daysRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-    dayChip: { width: 42, height: 42, borderRadius: 21, borderWidth: 1.5, justifyContent: 'center', alignItems: 'center' },
-    dayTxt: { fontSize: 11, fontWeight: '600' },
-
-    // Working hours
-    hoursRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, marginTop: 4 },
-    hourBox: { flex: 1 },
-    hourLabel: { fontSize: 12, fontWeight: '600', marginBottom: 6 },
-    hourInput: {
-        borderWidth: 1, borderRadius: 10,
-        paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 12 : 9,
-        fontSize: 15, textAlign: 'center', fontWeight: '600',
-    },
-    hourDash: { fontSize: 20, fontWeight: '300', marginBottom: 10 },
-
-    // Experience
-    expRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 2 },
-    expBtn: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 20, borderWidth: 1.5 },
-    expTxt: { fontSize: 13 },
-
-    // Pricing
-    priceRow: { flexDirection: 'row', gap: 20, marginTop: 4 },
-    priceHalf: { flex: 1 },
-    priceTypeLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
     priceInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
     priceCurrLarge: { fontSize: 20, fontWeight: '700', marginBottom: 2 },
-    priceInputLarge: {
-        fontSize: 28, fontWeight: '800',
-        borderBottomWidth: 2, paddingBottom: 2,
-        minWidth: 80,
-    },
+    priceInputLarge: { fontSize: 28, fontWeight: '800', borderBottomWidth: 2, paddingBottom: 2, minWidth: 80 },
     perUnit: { fontSize: 13, marginLeft: 4, marginBottom: 4 },
-    priceNote: { fontSize: 11, marginTop: 10, fontStyle: 'italic' },
 
-    // Rating
-    ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-    ratingBig: { fontSize: 44, fontWeight: '800' },
-
-    // Save
-    saveBtn: {
-        padding: 18, borderRadius: 14, alignItems: 'center', marginTop: 6,
-        shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
-    },
+    saveBtn: { padding: 18, borderRadius: 14, alignItems: 'center', marginTop: 6, elevation: 4 },
     saveTxt: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

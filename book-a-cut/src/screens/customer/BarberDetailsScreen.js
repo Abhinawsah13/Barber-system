@@ -13,7 +13,7 @@ export default function BarberDetailsScreen({ navigation, route }) {
     const [barberData, setBarberData] = useState(initialBarber);
     const [services, setServices] = useState(initialBarber?.offeredServices || initialBarber?.services || []);
     const [loading, setLoading] = useState(!initialBarber);
-    const [activeTab, setActiveTab] = useState('Book'); // 'Book', 'Reviews', 'Info'
+    const [activeTab, setActiveTab] = useState('Book');
     const [selectedService, setSelectedService] = useState(route.params?.service || null);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedServiceType, setSelectedServiceType] = useState(route.params?.serviceType || (initialBarber?.serviceModes?.home ? 'home' : 'salon'));
@@ -56,7 +56,6 @@ export default function BarberDetailsScreen({ navigation, route }) {
         }
     }, [selectedDate, selectedService, selectedServiceType]);
 
-    // Auto-deselect service if it's no longer in the filtered list
     useEffect(() => {
         if (selectedService && services.length > 0) {
             const isAvailable = services.some(s => {
@@ -96,6 +95,8 @@ export default function BarberDetailsScreen({ navigation, route }) {
         try {
             const data = await getBarberById(id);
             if (data) {
+                // ✅ DEBUG: log location data to confirm field names
+                console.log('Barber location data:', JSON.stringify(data?.location));
                 setBarberData(data);
                 setServices(data.offeredServices || []);
             }
@@ -107,14 +108,36 @@ export default function BarberDetailsScreen({ navigation, route }) {
     };
 
     const user = barberData?.user || {};
-    const name = user.username || barberData?.username || "Aarav Sharma";
+    const name = user.username || barberData?.username || "Barber";
     const image = user.profile_image;
     const phone = user.phone || "";
     const rating = barberData?.rating?.average || 0;
     const reviewCount = barberData?.rating?.count || 0;
-    const locationName = selectedServiceType === 'home'
-        ? (barberData?.location?.serviceArea || barberData?.location?.city || "Kathmandu")
-        : (barberData?.location?.address || barberData?.location?.city || "Kathmandu");
+
+    // ✅ FIXED: location logic — checks all possible field names from backend
+    const getLocationName = () => {
+        const loc = barberData?.location;
+        if (!loc) return "Location not specified";
+
+        if (selectedServiceType === 'home') {
+            // For home service → show service area (where barber travels to)
+            return loc.serviceArea
+                || loc.service_area
+                || loc.area
+                || loc.city
+                || "Service area not specified";
+        } else {
+            // For salon service → show barber shop address
+            return loc.address
+                || loc.shopAddress
+                || loc.shop_address
+                || loc.area
+                || loc.city
+                || "Location not specified";
+        }
+    };
+
+    const locationName = getLocationName();
     const shopName = barberData?.shop_name || "Sharp Edge";
 
     const handleConfirmBooking = () => {
@@ -152,7 +175,18 @@ export default function BarberDetailsScreen({ navigation, route }) {
                             <Text style={{ fontSize: 24, marginRight: 12 }}>🏍️</Text>
                             <View>
                                 <Text style={[styles.homeReadyTitle, { color: theme.text }]}>Home Service Available</Text>
-                                <Text style={[styles.homeReadySub, { color: theme.textMuted }]}>Thamel, Baneshwor, Baluwatar & nearby</Text>
+                                {/* ✅ FIXED: shows barber's actual service area */}
+                                <Text style={[styles.homeReadySub, { color: theme.textMuted }]}>
+                                    {barberData?.location?.serviceArea
+                                        || barberData?.location?.service_area
+                                        || barberData?.location?.area
+                                        || barberData?.location?.city
+                                        ? `${barberData?.location?.serviceArea
+                                            || barberData?.location?.service_area
+                                            || barberData?.location?.area
+                                            || barberData?.location?.city} & nearby`
+                                        : 'Service area not specified'}
+                                </Text>
                             </View>
                         </View>
                         <View style={styles.activeBadge}>
@@ -178,7 +212,6 @@ export default function BarberDetailsScreen({ navigation, route }) {
                     <Text style={{ color: theme.primary, fontWeight: 'bold' }}>ASK →</Text>
                 </TouchableOpacity>
             )}
-
 
             <View style={[styles.card, { backgroundColor: theme.card }]}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Choose Service</Text>
@@ -322,7 +355,6 @@ export default function BarberDetailsScreen({ navigation, route }) {
                     )}
                 </View>
             </View>
-
         </View>
     );
 
@@ -397,13 +429,18 @@ export default function BarberDetailsScreen({ navigation, route }) {
                 )}
 
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Barber Info</Text>
+
+                {/* ✅ FIXED: shows correct location based on service type */}
                 <View style={styles.infoRow}>
                     <Text style={styles.infoIcon}>📍</Text>
                     <View style={{ flex: 1 }}>
-                        <Text style={[styles.infoLabel, { color: theme.textMuted }]}>{selectedServiceType === 'home' ? 'Service Area' : 'Address'}</Text>
+                        <Text style={[styles.infoLabel, { color: theme.textMuted }]}>
+                            {selectedServiceType === 'home' ? 'Service Area' : 'Salon Location'}
+                        </Text>
                         <Text style={[styles.infoValue, { color: theme.text }]}>{locationName}</Text>
                     </View>
                 </View>
+
                 <View style={styles.infoRow}>
                     <Text style={styles.infoIcon}>📞</Text>
                     <View>
@@ -435,7 +472,9 @@ export default function BarberDetailsScreen({ navigation, route }) {
                         <View>
                             <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Travel</Text>
                             <Text style={[styles.infoValue, { color: theme.text }]}>
-                                {barberData?.pricing?.homeSurcharge ? `Rs. ${barberData.pricing.homeSurcharge} travel fee` : 'Brings all tools to you'}
+                                {barberData?.pricing?.homeSurcharge
+                                    ? `Rs. ${barberData.pricing.homeSurcharge} travel fee`
+                                    : 'Brings all tools to you'}
                             </Text>
                         </View>
                     </View>
@@ -474,6 +513,7 @@ export default function BarberDetailsScreen({ navigation, route }) {
                     </View>
                     <View style={styles.nameHeader}>
                         <Text style={[styles.name, { color: theme.text }]}>{name}</Text>
+                        {/* ✅ FIXED: shows correct location (not "My Location") */}
                         <Text style={[styles.shop, { color: theme.textMuted }]}>
                             {selectedServiceType === 'home' ? 'Home Visits' : 'Salon Services'} • {locationName}
                         </Text>
@@ -556,9 +596,6 @@ const styles = StyleSheet.create({
     homeReadySub: { fontSize: 12, marginTop: 2 },
     activeBadge: { backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
     activeText: { color: '#4CAF50', fontSize: 11, fontWeight: 'bold' },
-    typeToggle: { flexDirection: 'row', backgroundColor: '#F0F0F0', borderRadius: 12, padding: 4 },
-    toggleBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
-    toggleText: { fontSize: 13, fontWeight: '600' },
     card: { borderRadius: 20, padding: 20, marginBottom: 20, backgroundColor: '#FFF', elevation: 1 },
     sectionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 16 },
     serviceItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1 },
@@ -580,6 +617,7 @@ const styles = StyleSheet.create({
     slotText: { fontSize: 12 },
     ratingOverview: { flexDirection: 'row', justifyContent: 'space-between' },
     bigRating: { fontSize: 44, fontWeight: 'bold' },
+    stars: {},
     reviewCountText: { fontSize: 12, marginTop: 4 },
     ratingBars: { flex: 1, marginLeft: 30 },
     ratingBarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },

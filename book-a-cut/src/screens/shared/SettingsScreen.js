@@ -76,10 +76,8 @@ export default function SettingsScreen({ navigation }) {
         </View>
     );
 
-    const renderLinkItem = (label, icon) => (
-        <TouchableOpacity style={styles.linkItem} onPress={() => {
-            // No alert as requested
-        }}>
+    const renderLinkItem = (label, icon, onPress) => (
+        <TouchableOpacity style={styles.linkItem} onPress={onPress}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={styles.linkIcon}>{icon}</Text>
                 <Text style={[styles.linkLabel, { color: theme.text }]}>{label}</Text>
@@ -111,18 +109,18 @@ export default function SettingsScreen({ navigation }) {
 
                 <Text style={styles.sectionHeader}>Security</Text>
                 <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    {renderLinkItem("Change Password", "🔒")}
+                    {renderLinkItem("Change Password", "🔒", () => navigation.navigate("ChangePassword"))}
                     <View style={[styles.divider, { backgroundColor: theme.inputBg }]} />
-                    {renderLinkItem("Privacy Policy", "🛡️")}
+                    {renderLinkItem("Privacy Policy", "🛡️", () => Alert.alert("Privacy Policy", "Coming soon!"))}
                 </View>
 
                 <Text style={styles.sectionHeader}>Help & Support</Text>
                 <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    {renderLinkItem("FAQ", "❓")}
+                    {renderLinkItem("FAQ", "❓", () => Alert.alert("FAQ", "FAQs coming soon!"))}
                     <View style={[styles.divider, { backgroundColor: theme.inputBg }]} />
-                    {renderLinkItem("Contact Us", "📞")}
+                    {renderLinkItem("Contact Us", "📞", () => Alert.alert("Contact Us", "Email us at support@bookacut.com"))}
                     <View style={[styles.divider, { backgroundColor: theme.inputBg }]} />
-                    {renderLinkItem("About App", "ℹ️")}
+                    {renderLinkItem("About App", "ℹ️", () => Alert.alert("About", "Book-A-Cut Version 1.0.0"))}
                 </View>
 
                 <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>

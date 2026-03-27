@@ -7,7 +7,7 @@ import { getToken } from './TokenManager';
 import { API_BASE_URL } from '../config/server';
 
 // IP is defined ONCE in src/config/server.js - change it there, not here
-const BASE_URL = API_BASE_URL;
+export const BASE_URL = API_BASE_URL;
 
 // How long to wait for a response before giving up (30 seconds)
 const REQUEST_TIMEOUT_MS = 30000;
@@ -443,8 +443,17 @@ export const deleteService = async (serviceId) => {
 
 export const getBarbers = async (params) => {
     try {
-        // Build query string from the params object if any are passed
-        const queryString = params ? new URLSearchParams(params).toString() : '';
+        // ✅ Remove undefined/null values before building query string
+        const cleanParams = params ? Object.fromEntries(
+            Object.entries(params).filter(([_, v]) => 
+                v !== undefined && v !== null && v !== 'undefined' && v !== ''
+            )
+        ) : {};
+        
+        const queryString = Object.keys(cleanParams).length 
+            ? new URLSearchParams(cleanParams).toString() 
+            : '';
+            
         const url = queryString
             ? `${BASE_URL}/barbers?${queryString}`
             : `${BASE_URL}/barbers`;
@@ -465,6 +474,35 @@ export const getBarbers = async (params) => {
         return data.data;
     } catch (error) {
         console.error('Error fetching barbers:', error);
+        return [];
+    }
+};
+
+// GET /api/barbers/nearby — fetch barbers near a coordinate with optional service-type filter
+export const getNearbyBarbers = async (params = {}) => {
+    try {
+        // Remove undefined/null params before building query string
+        const cleanParams = Object.fromEntries(
+            Object.entries(params).filter(([_, v]) => v !== undefined && v !== null)
+        );
+        const queryString = new URLSearchParams(cleanParams).toString();
+        const url = `${BASE_URL}/barbers/nearby?${queryString}`;
+        logRequest(url, 'GET');
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: buildHeaders(),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to fetch nearby barbers');
+        }
+
+        return data.data || [];
+    } catch (error) {
+        console.error('Error fetching nearby barbers:', error);
         return [];
     }
 };
@@ -642,7 +680,7 @@ export const createBooking = async (bookingData) => {
 export const getMyBookings = async () => {
     try {
         const token = await getToken();
-        const url = `${BASE_URL}/bookings/my-bookings`;
+        const url = `${BASE_URL}/v2/bookings/my-bookings`;
         logRequest(url, 'GET');
 
         const response = await fetch(url, {
@@ -690,7 +728,7 @@ export const updateBookingStatus = async (bookingId, status) => {
 };
 
 // Cancel a booking - only works if the booking is still pending or confirmed
-export const cancelBooking = async (bookingId) => {
+export const cancelBooking = async (bookingId, cancellationReason = '') => {
     try {
         const token = await getToken();
         const url = `${BASE_URL}/v2/bookings/${bookingId}/cancel`;
@@ -699,6 +737,7 @@ export const cancelBooking = async (bookingId) => {
         const response = await fetch(url, {
             method: 'PUT',
             headers: buildHeaders(token),
+            body: JSON.stringify({ cancellationReason }),
         });
 
         const data = await response.json();
@@ -713,6 +752,32 @@ export const cancelBooking = async (bookingId) => {
         throw error;
     }
 };
+
+// Barber marks themselves as "on the way" for a home service booking
+export const markBarberOnTheWay = async (bookingId) => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/v2/bookings/${bookingId}/on-the-way`;
+        logRequest(url, 'PUT');
+
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: buildHeaders(token),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to mark on the way');
+        }
+
+        return data;
+    } catch (error) {
+        console.error('Error marking on the way:', error);
+        throw error;
+    }
+};
+
 
 // Pay for a booking — simulated payment, marks payment_status as "paid"
 export const payBooking = async (bookingId) => {
@@ -1068,9 +1133,81 @@ export const addMoneyToWallet = async (amount, source) => {
     }
 };
 
+// ─── Payments ─────────────────────────────────────────────────────────────────
+
+export const initiateKhaltiPayment = async (data) => {
+    try {
+        const token = await getToken();
+        // Since the backend registers it under /api/v2/payments
+        const url = `${BASE_URL}/v2/payments/khalti/initiate`;
+        const response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: buildHeaders(token),
+            body: JSON.stringify(data),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        return result; // { success, paymentUrl, pidx, bookingId }
+    } catch (error) {
+        throw error;
+    }
+};
+
+export const verifyKhaltiPayment = async (pidx, bookingId) => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/v2/payments/khalti/verify`;
+        const response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: buildHeaders(token),
+            body: JSON.stringify({ pidx, bookingId }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        return result; // { success, transactionId }
+    } catch (error) {
+        throw error;
+    }
+};
+
+export const initiateEsewaPayment = async (data) => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/v2/payments/esewa/initiate`;
+        const response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: buildHeaders(token),
+            body: JSON.stringify(data),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        return result; // { success, bookingId, esewaParams }
+    } catch (error) {
+        throw error;
+    }
+};
+
+export const verifyEsewaPayment = async (encodedData, bookingId) => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/v2/payments/esewa/verify`;
+        const response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: buildHeaders(token),
+            body: JSON.stringify({ encodedData, bookingId }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        return result;
+    } catch (error) {
+        throw error;
+    }
+};
+
 // Grouped export for convenience when importing auth functions together
 export const authAPI = {
     forgotPassword,
     deleteAccount,
     changePassword,
 };
+

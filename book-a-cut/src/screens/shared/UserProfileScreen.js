@@ -94,7 +94,7 @@ export default function UserProfileScreen({ navigation, route }) {
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
             {/* Header */}
             <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBack}>
+                <TouchableOpacity onPress={() => navigation.navigate("Home")} style={styles.headerBack}>
                     <Text style={[styles.headerBackText, { color: theme.text }]}>←</Text>
                 </TouchableOpacity>
                 <Text style={[styles.headerTitle, { color: theme.text }]}>Profile</Text>

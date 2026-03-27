@@ -15,6 +15,9 @@ router.get('/nearby', async (req, res) => {
             return res.status(400).json({ success: false, message: 'lat, lng required' });
         }
 
+        const userLat = parseFloat(lat);
+        const userLng = parseFloat(lng);
+
         const filter = {
             isActive: { $ne: false },
             isApproved: { $ne: false },
@@ -22,7 +25,7 @@ router.get('/nearby', async (req, res) => {
                 $near: {
                     $geometry: {
                         type: "Point",
-                        coordinates: [parseFloat(lng), parseFloat(lat)]
+                        coordinates: [userLng, userLat]
                     },
                     $maxDistance: 20000 // 20km
                 }
@@ -51,17 +54,43 @@ router.get('/nearby', async (req, res) => {
 
         const barbers = await BarberProfile.find(filter)
             .populate('user', 'username phone profile_image rating')
-            .limit(20);
+            .limit(30)
+            .lean();
+
+        // Haversine distance calculation
+        const toRad = (val) => (val * Math.PI) / 180;
+        const haversineKm = (lat1, lon1, lat2, lon2) => {
+            const R = 6371;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a =
+                Math.sin(dLat / 2) ** 2 +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+            return parseFloat((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2));
+        };
+
+        const enriched = barbers
+            .filter(b => b.user && b.location?.coordinates?.length === 2)
+            .map(b => {
+                const [bLng, bLat] = b.location.coordinates;
+                return {
+                    ...b,
+                    distance_km: haversineKm(userLat, userLng, bLat, bLng),
+                    _resolvedImage: b.profileImage || b.user?.profile_image || '',
+                };
+            })
+            .sort((a, b) => a.distance_km - b.distance_km);
 
         res.json({
             success: true,
-            count: barbers.length,
-            data: barbers
+            count: enriched.length,
+            data: enriched
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
+
 
 // 🔥 NEW: Search Barbers (CUSTOMER SCREEN)
 router.get('/search', async (req, res) => {
@@ -132,12 +161,15 @@ router.put('/toggle-online', authenticateToken, requireRole('barber'), async (re
         }
 
         profile.isOnline = req.body.isOnline;
-        profile.location = {
-            type: 'Point',
-            coordinates: [parseFloat(lng), parseFloat(lat)],
-            address,
-            city: req.body.city || 'Kathmandu'
-        };
+        
+        if (lat && lng) {
+            // Keep existing location details, just update coordinates
+            profile.location = {
+                ...profile.location,
+                type: 'Point',
+                coordinates: [parseFloat(lng), parseFloat(lat)]
+            };
+        }
 
         await profile.save();
 
@@ -151,7 +183,7 @@ router.put('/toggle-online', authenticateToken, requireRole('barber'), async (re
 // Returns list of barbers with their profile details
 router.get('/', async (req, res) => {
     try {
-        const { type, service } = req.query;
+        const { type, service, city, search } = req.query;
 
         // Basic visibility filter
         const filter = {
@@ -173,7 +205,6 @@ router.get('/', async (req, res) => {
                 { 'serviceModes.salon': { $ne: false } }
             ];
         }
-        // If service is "all" or missing, we show all active/approved barbers
 
         // Handle Category Filtering
         if (service && service !== 'all') {
@@ -186,14 +217,29 @@ router.get('/', async (req, res) => {
             .lean();
 
         // Only return barbers where the user account still exists
-        const validBarbers = barbers
+        let validBarbers = barbers
             .filter(b => b.user)
             .map(b => ({
                 ...b,
-                // Merge: use BarberProfile.profileImage as primary (always reliable),
-                // fall back to User.profile_image (may be large/truncated)
                 _resolvedImage: b.profileImage || b.user?.profile_image || '',
             }));
+
+        // ✅ City/location search in JavaScript
+        const searchTerm = (city || search || '').trim();
+        if (searchTerm) {
+            const regex = new RegExp(searchTerm, 'i');
+            validBarbers = validBarbers.filter(b => {
+                const loc = b.location || {};
+                return (
+                    regex.test(loc.city || '') ||
+                    regex.test(loc.address || '') ||
+                    regex.test(loc.serviceArea || '') ||
+                    regex.test(loc.fullAddress || '') ||
+                    regex.test(b.user?.username || '') ||
+                    (b.services || []).some(s => regex.test(s))
+                );
+            });
+        }
 
         res.json({
             success: true,
@@ -434,6 +480,7 @@ router.put('/toggle-online', authenticateToken, requireRole('barber'), async (re
             profile.isOnline = isOnline;
             if (lat && lng) {
                 profile.location = {
+                    ...profile.location,
                     type: 'Point',
                     coordinates: [lng, lat]
                 };

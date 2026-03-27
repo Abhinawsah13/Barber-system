@@ -5,9 +5,10 @@ import User from '../models/User.js';
 import { authenticateToken, requireVerification, requireRole } from '../middleware/authMiddleware.js';
 import crypto from 'crypto';
 import BarberProfile from '../models/BarberProfile.js';
+import Notification from '../models/Notification.js';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../lib/email.js';
-
 import generateOtp from '../utils/generateOtp.js';
+
 
 const router = express.Router();
 
@@ -219,6 +220,52 @@ router.post('/login', async (req, res) => {
                 }
             }
         });
+
+        // ─── Fire-and-forget: profile completion notification ────────────────
+        (async () => {
+            try {
+                const missingFields = [];
+
+                // Common fields for all users
+                if (!user.phone) missingFields.push('phone number');
+                if (!user.profile_image) missingFields.push('profile photo');
+
+                if (user.user_type === 'barber') {
+                    const bp = await BarberProfile.findOne({ user: user._id }).lean();
+                    if (bp) {
+                        if (!bp.bio || bp.bio === 'Welcome to my barber profile!') missingFields.push('bio');
+                        if (!bp.location?.address) missingFields.push('salon address');
+                        if (!bp.services || bp.services.length === 0) missingFields.push('services');
+                    }
+                } else if (user.user_type === 'customer') {
+                    if (!user.gender) missingFields.push('gender');
+                }
+
+                if (missingFields.length === 0) {
+                    // Profile is complete — delete any old incomplete notification
+                    await Notification.deleteOne({ user: user._id, type: 'profile_incomplete' });
+                    return;
+                }
+
+                const missingText = missingFields.join(', ');
+
+                // Upsert: create or update — never duplicate
+                await Notification.findOneAndUpdate(
+                    { user: user._id, type: 'profile_incomplete' },
+                    {
+                        user: user._id,
+                        title: '👤 Complete Your Profile',
+                        message: `Your profile is missing: ${missingText}. A complete profile helps you get the most out of Book-A-Cut.`,
+                        type: 'profile_incomplete',
+                        is_read: false,
+                        metadata: { missingFields }
+                    },
+                    { upsert: true, new: true }
+                );
+            } catch (err) {
+                console.error('[Login] Profile completion check failed:', err.message);
+            }
+        })();
 
     } catch (error) {
         console.error('Login error:', error);
