@@ -18,12 +18,8 @@ const platformEarningSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
-    },
-    created_at: {
-        type: Date,
-        default: Date.now
     }
-});
+}, { timestamps: true });
 
 const PlatformEarning = mongoose.model("PlatformEarning", platformEarningSchema);
 export default PlatformEarning;
