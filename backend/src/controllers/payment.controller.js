@@ -1,24 +1,20 @@
 // controllers/payment.controller.js
-// ✅ Khalti & eSewa Payment Integration
+// ✅ Khalti Payment Integration (eSewa removed)
 import axios from 'axios';
 import crypto from 'crypto';
 import Booking from '../models/Booking.js';
 import BarberProfile from '../models/BarberProfile.js';
 import Service from '../models/Service.js';
 import User from '../models/User.js';
+import Transaction from '../models/Transaction.js';
 import { sendNewBookingNotification } from '../services/notification.service.js';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const KHALTI_SECRET = process.env.KHALTI_SECRET_KEY;
-const KHALTI_BASE = process.env.NODE_ENV === 'production'
-    ? 'https://khalti.com/api/v2'
-    : 'https://dev.khalti.com/api/v2';
+const KHALTI_PUBLIC = process.env.KHALTI_PUBLIC_KEY; 
+const KHALTI_BASE = 'https://dev.khalti.com/api/v2'; 
 
-const ESEWA_MERCHANT = process.env.ESEWA_MERCHANT_ID || 'EPAYTEST';
-const ESEWA_SECRET = process.env.ESEWA_SECRET || '8gBm/:&EnhH.1/q'; // sandbox default
-const ESEWA_BASE = process.env.NODE_ENV === 'production'
-    ? 'https://esewa.com.np'
-    : 'https://uat.esewa.com.np';
+
 
 const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:3000';
 
@@ -58,7 +54,7 @@ const createPendingBooking = async (userId, data) => {
 // ─── POST /v2/payments/khalti/initiate ───────────────────────────────────────
 export const initiateKhalti = async (req, res) => {
     try {
-        const { amount, customerName, customerEmail, customerPhone, existingBookingId, ...bookingData } = req.body;
+        const { amount, existingBookingId, ...bookingData } = req.body;
 
         if (!KHALTI_SECRET) {
             return res.status(500).json({
@@ -84,63 +80,132 @@ export const initiateKhalti = async (req, res) => {
         // 2. Get customer info for Khalti
         const customer = await User.findById(req.user._id).select('username email phone').lean();
 
-        // 3. Initiate Khalti — amount must be in PAISA (Rs 100 = 10000 paisa)
-        const khaltiRes = await axios.post(`${KHALTI_BASE}/epayment/initiate/`, {
-            return_url: `${APP_BASE_URL}/api/v2/payments/khalti/callback`,
-            website_url: APP_BASE_URL,
-            amount: Math.round(amount * 100), // NPR → paisa
-            purchase_order_id: booking._id.toString(),
-            purchase_order_name: `Booking #${booking._id.toString().substring(0, 8)}`,
-            customer_info: {
-                name: customerName || customer?.username || 'Customer',
-                email: customerEmail || customer?.email || 'customer@bookacutt.com',
-                phone: customerPhone || customer?.phone || '9800000000',
+        // 3. Initiate KPG-2 Payment
+        const response = await axios.post(
+            `${KHALTI_BASE}/epayment/initiate/`,
+            {
+                return_url: `${APP_BASE_URL}/api/v2/payments/khalti/callback`,
+                website_url: APP_BASE_URL,
+                amount: Math.round(amount * 100), // convert Rs to Paisa
+                purchase_order_id: booking._id.toString(),
+                purchase_order_name: `Barber Booking #${booking._id.toString().substring(0, 8)}`,
+                customer_info: {
+                    name: customer.username || "Test User",
+                    email: customer.email || "test@gmail.com",
+                    phone: customer.phone || "9800000000"
+                }
             },
-        }, {
-            headers: { Authorization: `Key ${KHALTI_SECRET}` }
-        });
+            {
+                headers: {
+                    Authorization: `Key ${KHALTI_SECRET}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
 
-        console.log('[Khalti] Initiate success:', khaltiRes.data);
+        const { pidx, payment_url } = response.data;
+
+        // Save pidx to booking (optional but good for tracking)
+        booking.transaction_id = pidx;
+        await booking.save();
 
         return res.json({
             success: true,
-            paymentUrl: khaltiRes.data.payment_url,
-            pidx: khaltiRes.data.pidx,
+            paymentUrl: payment_url,
+            pidx: pidx,
             bookingId: booking._id,
         });
     } catch (err) {
         console.error('[Khalti Initiate Error]', err.response?.data || err.message);
-        return res.status(500).json({
-            success: false,
-            message: err.response?.data?.detail || err.message || 'Failed to initiate Khalti payment'
-        });
+        return res.status(500).json({ success: false, message: err.response?.data?.detail || 'Failed to initiate' });
     }
 };
 
+// ─── GET /v2/payments/khalti/v1-widget ──────────────────────────────────────
+export const khaltiWidget = async (req, res) => {
+    const { amount, order_id, order_name } = req.query;
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Khalti Payment</title>
+            <script src="https://khalti.s3.ap-south-1.amazonaws.com/KPG/dist/2020.12.22.0.0.0/khalti-checkout.iffe.js"></script>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f5f5f5; }
+                .card { background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 85%; max-width: 400px; }
+                img { margin-bottom: 20px; }
+                button { background-color: #5c2d91; color: white; border: none; padding: 18px 40px; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.3s; width: 100%; }
+                button:active { transform: scale(0.98); opacity: 0.9; }
+                #status { margin-top: 20px; color: #666; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <img src="https://khalti.com/static/img/logo1.png" width="160" alt="Khalti">
+                <p style="font-size: 18px; margin-bottom: 10px;">${order_name}</p>
+                <p style="font-size: 24px; font-weight: bold; color: #5c2d91; margin: 10px 0;">Rs. ${amount / 100}</p>
+                <button id="payment-button">Pay with Khalti</button>
+                <p id="status">Loading Khalti...</p>
+            </div>
+
+            <script>
+                var config = {
+                    "publicKey": "${KHALTI_PUBLIC}",
+                    "productIdentity": "${order_id}",
+                    "productName": "${order_name}",
+                    "productUrl": "${APP_BASE_URL}",
+                    "paymentPreference": ["KHALTI", "EBANKING", "MOBILE_BANKING", "CONNECT_IPS"],
+                    "eventHandler": {
+                        onSuccess (payload) {
+                            document.getElementById('status').innerText = "✅ Verifying...";
+                            window.location.href = "${APP_BASE_URL}/api/v2/payments/khalti/callback?status=Completed&pidx=" + payload.token + "&purchase_order_id=${order_id}";
+                        },
+                        onError (error) {
+                            document.getElementById('status').innerText = "❌ " + (error.detail || "Payment failed.");
+                        },
+                        onClose () { console.log("closed"); }
+                    }
+                };
+                var checkout = new KhaltiCheckout(config);
+                var btn = document.getElementById("payment-button");
+                btn.onclick = function () { checkout.show({amount: ${amount}}); }
+                document.getElementById('status').innerText = "Click the button below to pay";
+                setTimeout(() => btn.click(), 800);
+            </script>
+        </body>
+        </html>
+    `);
+};
+
 // ─── POST /v2/payments/khalti/verify ─────────────────────────────────────────
+// This can be called from frontend to manually verify a pidx
 export const verifyKhalti = async (req, res) => {
     try {
-        const { pidx, bookingId } = req.body;
+        const { pidx, bookingId: bodyBookingId } = req.body;
 
-        if (!pidx) {
-            return res.status(400).json({ success: false, message: 'pidx is required' });
+        if (!pidx) return res.status(400).json({ success: false, message: 'pidx is required' });
+
+        // Lookup Payment Status
+        const response = await axios.post(
+            `${KHALTI_BASE}/epayment/lookup/`,
+            { pidx },
+            {
+                headers: {
+                    Authorization: `Key ${KHALTI_SECRET}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        const data = response.data;
+        console.log('[Khalti Verify Lookup]', data);
+
+        if (data.status !== "Completed") {
+            return res.status(400).json({ success: false, message: `Payment Status: ${data.status}` });
         }
 
-        // Lookup payment status from Khalti
-        const lookupRes = await axios.post(`${KHALTI_BASE}/epayment/lookup/`, { pidx }, {
-            headers: { Authorization: `Key ${KHALTI_SECRET}` }
-        });
-
-        console.log('[Khalti] Lookup result:', lookupRes.data);
-
-        const { status, transaction_id, total_amount } = lookupRes.data;
-
-        if (status !== 'Completed') {
-            return res.json({
-                success: false,
-                message: `Payment not completed. Status: ${status}`
-            });
-        }
+        const bookingId = data.purchase_order_id || bodyBookingId;
 
         // 🛡️ SECURITY 1: Find existing booking and prevent duplicate payment
         const booking = await Booking.findById(bookingId);
@@ -148,30 +213,21 @@ export const verifyKhalti = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Booking not found' });
         }
         if (booking.payment_status === 'paid') {
-            return res.status(400).json({ success: false, message: 'Payment has already been processed for this booking' });
+            return res.json({ success: true, message: 'Payment already processed', transactionId: pidx });
         }
 
-        // 🛡️ SECURITY 2: Verify Amount matches (Khalti sends paisa, DB is NPR)
-        const verifiedAmount = total_amount / 100;
-        if (Math.abs(verifiedAmount - booking.total_price) > 0.01) {
-            console.error('[Khalti] Amount mismatch:', { expected: booking.total_price, received: verifiedAmount });
-            return res.status(400).json({ success: false, message: 'Payment amount mismatch. Possible fraud attempt.' });
+        // 🛡️ SECURITY 2: Verify Amount matches
+        if (data.total_amount < (booking.total_price * 100)) {
+            return res.status(400).json({ success: false, message: 'Payment amount is insufficient.' });
         }
 
-        // 🛡️ SECURITY 3: Ensure transaction_id is not already used elsewhere
-        const duplicateTxn = await Booking.findOne({ transaction_id: transaction_id, _id: { $ne: bookingId } });
-        if (duplicateTxn) {
-            console.error('[Khalti] FRAUD ALERT: transaction_id already used:', transaction_id);
-            return res.status(400).json({ success: false, message: 'Transaction ID already used.' });
-        }
-
-        // Mark booking as paid (Using Atomic Update for Race Conditions)
+        // Mark as paid
         const updatedBooking = await Booking.findOneAndUpdate(
             { _id: bookingId, payment_status: { $ne: 'paid' } },
             {
                 payment_status: 'paid',
                 payment_method: 'khalti',
-                transaction_id: transaction_id,
+                transaction_id: pidx,
             },
             { new: true }
         )
@@ -180,7 +236,7 @@ export const verifyKhalti = async (req, res) => {
             .populate('service', 'name price');
 
         if (!updatedBooking) {
-             return res.status(400).json({ success: false, message: 'Concurrent payment processing detected.' });
+            return res.status(400).json({ success: false, message: 'Concurrent payment processing detected.' });
         }
 
         // Send booking notification
@@ -189,7 +245,7 @@ export const verifyKhalti = async (req, res) => {
 
         return res.json({
             success: true,
-            transactionId: transaction_id,
+            transactionId: pidx,
             message: 'Payment verified successfully'
         });
     } catch (err) {
@@ -202,221 +258,258 @@ export const verifyKhalti = async (req, res) => {
 };
 
 // ─── GET /v2/payments/khalti/callback ────────────────────────────────────────
-// Khalti redirects here after payment — WebView will detect this URL
+// Khalti redirects here after payment
 export const khaltiCallback = async (req, res) => {
-    const { pidx, status, purchase_order_id } = req.query;
-    console.log('[Khalti Callback]', { pidx, status, purchase_order_id });
-
-    // Return a simple HTML page that the WebView can detect
-    res.send(`
-        <html>
-        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">
-            <div style="text-align:center">
-                <h2>${status === 'Completed' ? '✅ Payment Successful!' : '❌ Payment ' + status}</h2>
-                <p>Redirecting back to app...</p>
-            </div>
-        </body>
-        </html>
-    `);
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// eSEWA
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ─── POST /v2/payments/esewa/initiate ────────────────────────────────────────
-export const initiateEsewa = async (req, res) => {
     try {
-        const { amount, existingBookingId, ...bookingData } = req.body;
+        const { pidx, status, purchase_order_id, transaction_id } = req.query;
+        console.log('[Khalti Callback]', { pidx, status, purchase_order_id });
 
-        // 1. Create or retrieve booking
-        let booking;
-        if (existingBookingId) {
-            booking = await Booking.findById(existingBookingId);
-            if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
-            if (booking.payment_status === 'paid') return res.status(400).json({ success: false, message: 'Booking is already paid' });
-            booking.payment_method = 'esewa';
-            await booking.save();
-        } else {
-            booking = await createPendingBooking(req.user._id, { ...bookingData, amount });
-            booking.payment_method = 'esewa';
-            await booking.save();
+        if (status !== 'Completed') {
+            return res.send(`
+                <html>
+                <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background-color:#f8d7da">
+                    <div style="text-align:center;padding:20px;background:white;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.1)">
+                        <h2 style="color:#721c24">❌ Payment ${status || 'Failed'}</h2>
+                        <p>Something went wrong with your payment. Please try again.</p>
+                        <button onclick="window.close()" style="margin-top:20px;padding:10px 20px;border:none;background:#5c2d91;color:white;border-radius:8px;cursor:pointer">Back to App</button>
+                    </div>
+                </body>
+                </html>
+            `);
         }
 
-        // 2. Generate eSewa HMAC signature
-        const transactionUuid = booking._id.toString();
-        const signatureString = `total_amount=${amount},transaction_uuid=${transactionUuid},product_code=${ESEWA_MERCHANT}`;
-        const signature = crypto
-            .createHmac('sha256', ESEWA_SECRET)
-            .update(signatureString)
-            .digest('base64');
-
-        // 3. Return the form URL — the app will serve it via WebView
-        const successUrl = `${APP_BASE_URL}/api/v2/payments/esewa/callback?bookingId=${booking._id}`;
-        const failureUrl = `${APP_BASE_URL}/api/v2/payments/esewa/failure`;
-
-        return res.json({
-            success: true,
-            bookingId: booking._id,
-            // Return all form params so the app can build the WebView HTML
-            esewaParams: {
-                amount,
-                tax_amount: 0,
-                total_amount: amount,
-                transaction_uuid: transactionUuid,
-                product_code: ESEWA_MERCHANT,
-                product_service_charge: 0,
-                product_delivery_charge: 0,
-                success_url: successUrl,
-                failure_url: failureUrl,
-                signed_field_names: 'total_amount,transaction_uuid,product_code',
-                signature,
-                action: `${ESEWA_BASE}/api/epay/main/v2/form`,
-            }
-        });
-    } catch (err) {
-        console.error('[eSewa Initiate Error]', err.response?.data || err.message);
-        return res.status(500).json({
-            success: false,
-            message: err.message || 'Failed to initiate eSewa payment'
-        });
-    }
-};
-
-// ─── POST /v2/payments/esewa/verify ──────────────────────────────────────────
-export const verifyEsewa = async (req, res) => {
-    try {
-        const { encodedData, bookingId } = req.body;
-
-        if (!encodedData) {
-            return res.status(400).json({ success: false, message: 'encodedData is required' });
-        }
-
-        // Decode base64 response from eSewa
-        const decoded = JSON.parse(Buffer.from(encodedData, 'base64').toString('utf8'));
-        console.log('[eSewa] Decoded response:', decoded);
-
-        const { status, transaction_uuid, total_amount, transaction_code, signed_field_names, signature } = decoded;
-
-        // Verify HMAC signature
-        if (signed_field_names && signature) {
-            const signatureString = signed_field_names
-                .split(',')
-                .map(f => `${f}=${decoded[f]}`)
-                .join(',');
-            const expectedSig = crypto
-                .createHmac('sha256', ESEWA_SECRET)
-                .update(signatureString)
-                .digest('base64');
-
-            if (expectedSig !== signature) {
-                console.error('[eSewa] Signature mismatch!');
-                return res.json({ success: false, message: 'Invalid payment signature' });
-            }
-        }
-
-        if (status !== 'COMPLETE') {
-            return res.json({
-                success: false,
-                message: `Payment not completed. Status: ${status}`
-            });
-        }
-
-        const targetBookingId = bookingId || transaction_uuid;
-
-        // 🛡️ SECURITY 1: Find existing booking and prevent duplicate payment
-        const booking = await Booking.findById(targetBookingId);
-        if (!booking) {
-            return res.status(404).json({ success: false, message: 'Booking not found' });
-        }
-        if (booking.payment_status === 'paid') {
-            return res.status(400).json({ success: false, message: 'Payment has already been processed for this booking' });
-        }
-
-        // 🛡️ SECURITY 2: Verify Amount matches
-        const verifiedAmount = Number(total_amount);
-        if (Math.abs(verifiedAmount - booking.total_price) > 0.01) {
-            console.error('[eSewa] Amount mismatch:', { expected: booking.total_price, received: verifiedAmount });
-            return res.status(400).json({ success: false, message: 'Payment amount mismatch. Possible fraud attempt.' });
-        }
-
-        // 🛡️ SECURITY 3: Verify the transaction UUID matches the booking ID
-        if (transaction_uuid && transaction_uuid !== targetBookingId) {
-            console.error('[eSewa] Transaction UUID mismatch:', { expected: targetBookingId, received: transaction_uuid });
-            return res.status(400).json({ success: false, message: 'Invalid transaction tracking ID.' });
-        }
-
-        // 🛡️ SECURITY 4: Ensure transaction_code is not already used elsewhere
-        const duplicateTxn = await Booking.findOne({ transaction_id: transaction_code, _id: { $ne: targetBookingId } });
-        if (duplicateTxn && transaction_code) {
-             console.error('[eSewa] FRAUD ALERT: transaction_code already used:', transaction_code);
-             return res.status(400).json({ success: false, message: 'Transaction ID already used.' });
-        }
-
-        // Mark booking as paid (Using Atomic Update)
-        const updatedBooking = await Booking.findOneAndUpdate(
-            { _id: targetBookingId, payment_status: { $ne: 'paid' } },
+        // Verify with Khalti lookup
+        const lookupRes = await axios.post(
+            `${KHALTI_BASE}/epayment/lookup/`,
+            { pidx },
             {
-                payment_status: 'paid',
-                payment_method: 'esewa',
-                transaction_id: transaction_code,
-            },
-            { new: true }
-        )
-            .populate('customer', 'username phone')
-            .populate('barber', 'username profile_image')
-            .populate('service', 'name price');
+                headers: {
+                    Authorization: `Key ${KHALTI_SECRET}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
 
-        if (!updatedBooking) {
-             return res.status(400).json({ success: false, message: 'Concurrent payment processing detected or already paid.' });
+        const result = lookupRes.data;
+
+        if (result.status === 'Completed') {
+            // Find if it was a top-up or a booking
+            const booking = await Booking.findById(purchase_order_id);
+            if (booking) {
+                if (booking.payment_status !== 'paid') {
+                    booking.payment_status = 'paid';
+                    booking.transaction_id = pidx;
+                    await booking.save();
+
+                    // Optional: Trigger socket notification
+                    const io = req.app.get('io');
+                    const updatedBooking = await Booking.findById(purchase_order_id)
+                        .populate('customer', 'username phone')
+                        .populate('barber', 'username profile_image')
+                        .populate('service', 'name price');
+                    await sendNewBookingNotification(updatedBooking, io);
+                }
+            } else {
+                // Check if it's a Top-up transaction
+                const transaction = await Transaction.findById(purchase_order_id);
+                if (transaction && transaction.status !== 'completed') {
+                    transaction.status = 'completed';
+                    transaction.reference_id = pidx;
+                    await transaction.save();
+
+                    const user = await User.findById(transaction.user);
+                    user.wallet_balance = (user.wallet_balance || 0) + transaction.amount;
+                    await user.save();
+                }
+            }
+
+            return res.send(`
+                <html>
+                <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background-color:#d4edda">
+                    <div style="text-align:center;padding:20px;background:white;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.1)">
+                        <h2 style="color:#155724">✅ Payment Successful!</h2>
+                        <p>Your payment has been verified. You can now close this window.</p>
+                        <button onclick="window.close()" style="margin-top:20px;padding:10px 20px;border:none;background:#5c2d91;color:white;border-radius:8px;cursor:pointer">Back to App</button>
+                    </div>
+                    <script>
+                        // If in WebView, some might need to communicate back
+                        setTimeout(() => {
+                           // Try to close or redirect if needed
+                        }, 3000);
+                    </script>
+                </body>
+                </html>
+            `);
         }
 
-        // Send booking notification
-        const io = req.app.get('io');
-        await sendNewBookingNotification(updatedBooking, io);
+        res.send("Processing payment...");
+    } catch (err) {
+        console.error('[Khalti Callback Error]', err.response?.data || err.message);
+        res.status(500).send("Error verifying payment");
+    }
+};
+
+// ─── WALLET TOP-UP ──────────────────────────────────────────────────────────
+
+export const initiateKhaltiTopUp = async (req, res) => {
+    try {
+        const { amount } = req.body;
+
+        if (!amount || amount < 10) {
+            return res.status(400).json({ success: false, message: 'Minimum RS 10 top-up required' });
+        }
+
+        // 1. Create a pending transaction
+        const transaction = await Transaction.create({
+            user: req.user._id,
+            type: 'credit',
+            amount: amount,
+            title: 'Khalti Top-up (Pending)',
+            description: 'Wallet top-up via Khalti',
+            status: 'pending'
+        });
+
+        // 2. Get customer info
+        const customer = await User.findById(req.user._id).select('username email phone').lean();
+
+        // 3. Initiate KPG-2 Top-up
+        const response = await axios.post(
+            `${KHALTI_BASE}/epayment/initiate/`,
+            {
+                return_url: `${APP_BASE_URL}/api/v2/payments/khalti/callback`,
+                website_url: APP_BASE_URL,
+                amount: Math.round(amount * 100),
+                purchase_order_id: transaction._id.toString(),
+                purchase_order_name: `Wallet Top-up - ${customer.username}`,
+                customer_info: {
+                    name: customer.username,
+                    email: customer.email,
+                    phone: customer.phone
+                }
+            },
+            {
+                headers: {
+                    Authorization: `Key ${KHALTI_SECRET}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        const { pidx, payment_url } = response.data;
+        transaction.reference_id = pidx; // track pidx
+        await transaction.save();
 
         return res.json({
             success: true,
-            transactionId: transaction_code,
-            message: 'eSewa payment verified successfully'
+            paymentUrl: payment_url,
+            pidx: pidx,
+            transactionId: transaction._id.toString(),
         });
+
     } catch (err) {
-        console.error('[eSewa Verify Error]', err.message);
+        console.error('[Khalti Topup Error]', err.response?.data || err.message);
         return res.status(500).json({
             success: false,
-            message: err.message || 'eSewa payment verification failed'
+            message: err.response?.data?.detail || err.message || 'Failed to initiate top-up'
         });
     }
 };
 
-// ─── GET /v2/payments/esewa/callback ─────────────────────────────────────────
-export const esewaCallback = async (req, res) => {
-    const { data, bookingId } = req.query;
-    console.log('[eSewa Callback] bookingId:', bookingId, 'data:', data?.substring(0, 50));
 
-    res.send(`
-        <html>
-        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">
-            <div style="text-align:center">
-                <h2>✅ eSewa Payment Received!</h2>
-                <p>Redirecting back to app...</p>
-            </div>
-        </body>
-        </html>
-    `);
+export const verifyKhaltiTopUp = async (req, res) => {
+    try {
+        const { pidx, transactionId: bodyTxnId } = req.body;
+
+        if (!pidx) return res.status(400).json({ success: false, message: 'pidx is required' });
+
+        // Lookup
+        const lookupRes = await axios.post(
+            `${KHALTI_BASE}/epayment/lookup/`,
+            { pidx },
+            {
+                headers: {
+                    Authorization: `Key ${KHALTI_SECRET}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        const data = lookupRes.data;
+        console.log('[Khalti Topup Verify Lookup]', data);
+
+        if (data.status !== "Completed") {
+            return res.status(400).json({ success: false, message: `Status: ${data.status}` });
+        }
+
+        const transactionId = data.purchase_order_id || bodyTxnId;
+
+        // 1. Find transaction
+        const pendingTxn = await Transaction.findById(transactionId);
+        if (!pendingTxn) return res.status(404).json({ success: false, message: 'Txn not found' });
+        if (pendingTxn.status === 'completed') return res.json({ success: true, message: 'Already processed' });
+
+        // 2. Validate amount
+        if (data.total_amount < (pendingTxn.amount * 100)) {
+            return res.status(400).json({ success: false, message: 'Insufficient amount' });
+        }
+
+        // 3. Update
+        pendingTxn.status = 'completed';
+        pendingTxn.reference_id = pidx;
+        pendingTxn.title = 'Khalti Top-up';
+        await pendingTxn.save();
+
+        const user = await User.findById(pendingTxn.user);
+        user.wallet_balance = (user.wallet_balance || 0) + pendingTxn.amount;
+        await user.save();
+
+        return res.json({
+            success: true,
+            balance: user.wallet_balance,
+            message: 'Wallet topped up successfully!'
+        });
+
+    } catch (err) {
+        console.error('[Khalti Topup Verify Error]', err.response?.data || err.message);
+        return res.status(500).json({ success: false, message: 'Verification failed' });
+    }
 };
 
-// ─── GET /v2/payments/esewa/failure ──────────────────────────────────────────
-export const esewaFailure = async (req, res) => {
-    console.log('[eSewa Failure]', req.query);
-    res.send(`
-        <html>
-        <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">
-            <div style="text-align:center">
-                <h2>❌ Payment Failed</h2>
-                <p>Redirecting back to app...</p>
-            </div>
-        </body>
-        </html>
-    `);
+export const requestWithdrawal = async (req, res) => {
+    try {
+        const { amount, khaltiId } = req.body;
+
+        if (!amount || amount < 100) {
+            return res.status(400).json({ success: false, message: 'Minimum Rs. 100 withdrawal required' });
+        }
+
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        if ((user.wallet_balance || 0) < amount) {
+            return res.status(400).json({ success: false, message: 'Insufficient balance' });
+        }
+
+        await Transaction.create({
+            user: req.user._id,
+            type: 'debit',
+            amount: amount,
+            title: 'Withdrawal (Pending)',
+            description: `Khalti/Bank: ${khaltiId || user.phone || 'Same as profile'}`,
+            status: 'pending'
+        });
+
+        user.wallet_balance = (user.wallet_balance || 0) - amount;
+        await user.save();
+
+        return res.json({
+            success: true,
+            balance: user.wallet_balance,
+            message: 'Withdrawal request submitted! Processing soon.'
+        });
+
+    } catch (err) {
+        console.error('[Withdrawal Error]', err.message);
+        return res.status(500).json({ success: false, message: 'Withdrawal failed' });
+    }
 };

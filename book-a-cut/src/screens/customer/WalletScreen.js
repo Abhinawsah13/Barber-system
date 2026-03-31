@@ -13,11 +13,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { THEME } from '../../theme/theme';
 import { useTheme } from "../../context/ThemeContext";
-import { getWallet, addMoneyToWallet } from '../../services/api';
+import { useLanguage } from "../../context/LanguageProvider";
+import { getWallet, addMoneyToWallet, initiateKhaltiTopUp, requestWithdrawal } from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 
 export default function WalletScreen({ navigation }) {
     const { theme } = useTheme();
+    const { t } = useLanguage();
     const [balance, setBalance] = useState(0.00);
     const [loyaltyPoints, setLoyaltyPoints] = useState(0);
     const [transactions, setTransactions] = useState([]);
@@ -34,7 +36,7 @@ export default function WalletScreen({ navigation }) {
             }
         } catch (error) {
             console.error(error);
-            Alert.alert("Error", "Failed to load wallet information.");
+            Alert.alert(t('error'), t('wallet_data_fail'));
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -54,10 +56,10 @@ export default function WalletScreen({ navigation }) {
 
     const handleAddMoney = () => {
         Alert.alert(
-            "Add Money",
-            "Select amount to top-up:",
+            t('add_money'),
+            t('select_topup_amount'),
             [
-                { text: "Cancel", style: "cancel" },
+                { text: t('cancel'), style: "cancel" },
                 { text: "Rs 500", onPress: () => processTopUp(500) },
                 { text: "Rs 1000", onPress: () => processTopUp(1000) },
                 { text: "Rs 2000", onPress: () => processTopUp(2000) },
@@ -68,17 +70,94 @@ export default function WalletScreen({ navigation }) {
     const processTopUp = async (amount) => {
         try {
             setLoading(true);
-            await addMoneyToWallet(amount, 'Bank Card'); // Simulating card source
-            Alert.alert("Success", `Rs ${amount} added to your wallet!`);
-            fetchWalletData();
+            const result = await initiateKhaltiTopUp(amount);
+            if (result.success) {
+                navigation.navigate('PaymentWebView', {
+                    paymentUrl: result.paymentUrl,
+                    gateway: 'khalti',
+                    type: 'topup',
+                    pidx: result.pidx,
+                    transactionId: result.transactionId,
+                    amount: amount
+                });
+            } else {
+                Alert.alert(t('error'), result.message || 'Could not initiate payment.');
+            }
         } catch (error) {
-            Alert.alert("Error", "Transaction failed.");
+            Alert.alert(t('error'), error.message || t('transaction_fail'));
         } finally {
             setLoading(false);
         }
     };
 
+    const handleWithdraw = () => {
+        Alert.prompt(
+            t('withdraw'),
+            t('enter_withdraw_amount'),
+            [
+                { text: t('cancel'), style: 'cancel' },
+                {
+                    text: t('next'),
+                    onPress: (amount) => {
+                        const numAmount = parseFloat(amount);
+                        if (isNaN(numAmount) || numAmount < 100) {
+                            Alert.alert(t('error'), t('min_withdraw_100'));
+                            return;
+                        }
+                        if (numAmount > balance) {
+                            Alert.alert(t('error'), t('insufficient_balance'));
+                            return;
+                        }
+                        // Second step: Ask for Khalti ID
+                        askKhaltiId(numAmount);
+                    }
+                }
+            ],
+            'plain-text',
+            '',
+            'number-pad'
+        );
+    };
 
+    const askKhaltiId = (amount) => {
+        Alert.prompt(
+            t('payout_details'),
+            t('enter_khalti_id_desc'),
+            [
+                { text: t('cancel'), style: 'cancel' },
+                {
+                    text: t('submit'),
+                    onPress: async (khaltiId) => {
+                        if (!khaltiId) {
+                            Alert.alert(t('error'), t('khalti_id_required'));
+                            return;
+                        }
+                        processWithdrawal(amount, khaltiId);
+                    }
+                }
+            ],
+            'plain-text',
+            '',
+            'number-pad'
+        );
+    };
+
+    const processWithdrawal = async (amount, khaltiId) => {
+        try {
+            setLoading(true);
+            const result = await requestWithdrawal(amount, khaltiId);
+            if (result.success) {
+                Alert.alert(t('success'), result.message);
+                fetchWalletData(); // Refresh balance and transactions
+            } else {
+                Alert.alert(t('error'), result.message || 'Withdrawal failed');
+            }
+        } catch (error) {
+            Alert.alert(t('error'), error.message || t('transaction_fail'));
+        } finally {
+            setLoading(false);
+        }
+    };
     if (loading && !refreshing && transactions.length === 0) {
         return (
             <SafeAreaView style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center' }]}>
@@ -94,7 +173,7 @@ export default function WalletScreen({ navigation }) {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <Text style={[styles.backText, { color: theme.text }]}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>My Wallet</Text>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>{t('my_wallet')}</Text>
                 <TouchableOpacity style={styles.iconBtn}>
                     <Text style={{ fontSize: 20, color: theme.text }}>⋮</Text>
                 </TouchableOpacity>
@@ -107,16 +186,16 @@ export default function WalletScreen({ navigation }) {
 
                 {/* Balance Card */}
                 <View style={[styles.balanceCard, { backgroundColor: theme.primary, shadowColor: theme.primary }]}>
-                    <Text style={styles.balanceLabel}>Total Balance</Text>
+                    <Text style={styles.balanceLabel}>{t('total_balance')}</Text>
                     <Text style={styles.balanceAmount}>Rs {balance.toFixed(2)}</Text>
                     <View style={styles.balanceActions}>
                         <TouchableOpacity style={styles.actionBtn} onPress={handleAddMoney}>
                             <Text style={styles.actionIcon}>+</Text>
-                            <Text style={styles.actionText}>Top Up</Text>
+                            <Text style={styles.actionText}>{t('top_up')}</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionBtn} onPress={() => Alert.alert("Withdraw", "Withdrawal feature coming soon!")}>
+                        <TouchableOpacity style={styles.actionBtn} onPress={handleWithdraw}>
                             <Text style={styles.actionIcon}>↗</Text>
-                            <Text style={styles.actionText}>Withdraw</Text>
+                            <Text style={styles.actionText}>{t('withdraw')}</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -125,9 +204,9 @@ export default function WalletScreen({ navigation }) {
                 <View style={[styles.rewardsCard, { backgroundColor: '#333' }]}>
                     {/* Kept dark by default as its a special card, or could use theme.cardSecondary */}
                     <View>
-                        <Text style={styles.rewardsTitle}>Loyalty Points</Text>
-                        <Text style={styles.rewardsPoints}>{loyaltyPoints} pts</Text>
-                        <Text style={styles.rewardsSub}>Get Rs 500 off for every 500 pts</Text>
+                        <Text style={styles.rewardsTitle}>{t('loyalty_points')}</Text>
+                        <Text style={styles.rewardsPoints}>{loyaltyPoints} {t('loyalty_points_subtitle')}</Text>
+                        <Text style={styles.rewardsSub}>{t('loyalty_reward_info')}</Text>
                     </View>
                     <View style={styles.crownIcon}>
                         <Text style={{ fontSize: 30 }}>👑</Text>
@@ -136,36 +215,36 @@ export default function WalletScreen({ navigation }) {
 
                 {/* Payment Methods */}
                 <View style={styles.sectionHeader}>
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Payment Methods</Text>
-                    <TouchableOpacity onPress={() => Alert.alert("Manage Cards", "Feature to manage saved cards coming soon.")}>
-                        <Text style={[styles.linkText, { color: theme.primary }]}>Manage</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('payment_methods')}</Text>
+                    <TouchableOpacity onPress={() => Alert.alert(t('manage'), t('manage_cards_coming_soon'))}>
+                        <Text style={[styles.linkText, { color: theme.primary }]}>{t('manage')}</Text>
                     </TouchableOpacity>
                 </View>
 
                 <TouchableOpacity
                     style={[styles.methodCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                    onPress={() => Alert.alert("Card Settings", "This is your default payment method.")}
+                    onPress={() => Alert.alert(t('settings'), t('default_card_desc'))}
                 >
                     <View style={styles.methodRow}>
                         <Text style={{ fontSize: 24, marginRight: 15 }}>💳</Text>
                         <View style={{ flex: 1 }}>
-                            <Text style={[styles.methodTitle, { color: theme.text }]}>Saved Cards</Text>
-                            <Text style={[styles.methodSubtitle, { color: theme.textMuted }]}>Click to manage cards</Text>
+                            <Text style={[styles.methodTitle, { color: theme.text }]}>{t('saved_cards')}</Text>
+                            <Text style={[styles.methodSubtitle, { color: theme.textMuted }]}>{t('click_to_manage')}</Text>
                         </View>
-                        <Text style={{ color: theme.primary, fontWeight: 'bold' }}>Default</Text>
+                        <Text style={{ color: theme.primary, fontWeight: 'bold' }}>{t('default')}</Text>
                     </View>
                 </TouchableOpacity>
 
                 {/* Transaction History */}
                 <View style={styles.sectionHeader}>
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent Transactions</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('recent_transactions')}</Text>
                 </View>
 
                 {transactions.length === 0 ? (
                     <View style={[styles.emptyState, { backgroundColor: theme.card }]}>
                         <Text style={{ fontSize: 40, marginBottom: 10 }}>💸</Text>
-                        <Text style={[styles.emptyStateText, { color: theme.text }]}>No transactions yet</Text>
-                        <Text style={[styles.emptyStateSubtext, { color: theme.textMuted }]}>Top up your wallet to get started!</Text>
+                        <Text style={[styles.emptyStateText, { color: theme.text }]}>{t('no_transactions')}</Text>
+                        <Text style={[styles.emptyStateSubtext, { color: theme.textMuted }]}>{t('top_up_to_start')}</Text>
                     </View>
                 ) : (
                     transactions.map((tx) => (

@@ -8,6 +8,7 @@ import { API_BASE_URL } from '../config/server';
 
 // IP is defined ONCE in src/config/server.js - change it there, not here
 export const BASE_URL = API_BASE_URL;
+export const API_URL = BASE_URL;
 
 // How long to wait for a response before giving up (30 seconds)
 const REQUEST_TIMEOUT_MS = 30000;
@@ -1037,10 +1038,10 @@ export const getReviewByBooking = async (bookingId) => {
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
-export const getNotifications = async () => {
+export const getNotifications = async (barberId) => {
     try {
         const token = await getToken();
-        const url = `${BASE_URL}/notifications`;
+        const url = barberId ? `${BASE_URL}/notifications/${barberId}` : `${BASE_URL}/notifications`;
         logRequest(url, 'GET');
 
         const response = await fetch(url, {
@@ -1049,15 +1050,49 @@ export const getNotifications = async () => {
         });
 
         const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.message);
-        }
-
+        if (!response.ok) throw new Error(data.message);
         return data.data;
     } catch (error) {
         console.error('Error fetching notifications:', error);
         return [];
+    }
+};
+
+export const getUnreadNotificationCount = async () => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/notifications/unread-count`;
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: buildHeaders(token),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data.count || 0;
+    } catch (error) {
+        return 0;
+    }
+};
+
+export const markAllNotificationsAsRead = async (barberId) => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/notifications/read/${barberId}`;
+        logRequest(url, 'PUT');
+
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: buildHeaders(token),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data;
+    } catch (error) {
+        console.error('Error marking all notifications as read:', error);
+        return { success: false };
     }
 };
 
@@ -1073,6 +1108,7 @@ export const markNotificationAsRead = async (id) => {
         });
 
         const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
         return data;
     } catch (error) {
         console.error('Error marking notification as read:', error);
@@ -1170,35 +1206,196 @@ export const verifyKhaltiPayment = async (pidx, bookingId) => {
     }
 };
 
-export const initiateEsewaPayment = async (data) => {
+// Wallet Top-up
+export const initiateKhaltiTopUp = async (amount) => {
     try {
         const token = await getToken();
-        const url = `${BASE_URL}/v2/payments/esewa/initiate`;
+        const url = `${BASE_URL}/v2/payments/khalti/topup/initiate`;
         const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: buildHeaders(token),
-            body: JSON.stringify(data),
+            body: JSON.stringify({ amount }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.message);
-        return result; // { success, bookingId, esewaParams }
+        return result; // { success, paymentUrl, pidx, transactionId }
     } catch (error) {
         throw error;
     }
 };
 
-export const verifyEsewaPayment = async (encodedData, bookingId) => {
+export const verifyKhaltiTopUp = async (pidx, transactionId) => {
     try {
         const token = await getToken();
-        const url = `${BASE_URL}/v2/payments/esewa/verify`;
+        const url = `${BASE_URL}/v2/payments/khalti/topup/verify`;
         const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: buildHeaders(token),
-            body: JSON.stringify({ encodedData, bookingId }),
+            body: JSON.stringify({ pidx, transactionId }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.message);
-        return result;
+        return result; // { success, balance }
+    } catch (error) {
+        throw error;
+    }
+};
+// ─── Wallet & Payments ────────────────────────────────────────────────────────
+export const requestWithdrawal = async (amount, khaltiId) => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/v2/payments/withdraw`;
+        logRequest(url, 'POST', { amount, khaltiId });
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: buildHeaders(token),
+            body: JSON.stringify({ amount, khaltiId }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data; // { success, balance, message }
+    } catch (error) {
+        throw error;
+    }
+};
+
+// ─── Subscriptions ─────────────────────────────────────────────────────────────
+export const getSubscriptionPlans = async () => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/subscriptions/plans`;
+        logRequest(url, 'GET');
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: buildHeaders(token),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data; // { plans, success }
+    } catch (error) {
+        throw error;
+    }
+};
+
+export const getMySubscription = async () => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/subscriptions/my-subscription`;
+        logRequest(url, 'GET');
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: buildHeaders(token),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data;
+    } catch (error) {
+        throw error;
+    }
+};
+
+export const subscribeToPlan = async (plan, paymentMethod = 'wallet') => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/subscriptions/subscribe`;
+        logRequest(url, 'POST', { plan, paymentMethod });
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: buildHeaders(token),
+            body: JSON.stringify({ plan, paymentMethod }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data;
+    } catch (error) {
+        throw error;
+    }
+};
+
+export const renewPlan = async (paymentMethod = 'wallet') => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/subscriptions/renew`;
+        logRequest(url, 'POST', { paymentMethod });
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: buildHeaders(token),
+            body: JSON.stringify({ paymentMethod }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data;
+    } catch (error) {
+        throw error;
+    }
+};
+
+export const cancelSubscription = async () => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/subscriptions/cancel`;
+        logRequest(url, 'POST');
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: buildHeaders(token),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data;
+    } catch (error) {
+        throw error;
+    }
+};
+
+// ─── End of Subscriptions ──────────────────────────────────────────────────────
+
+// ─── Admin System Settings ───────────────────────────────────────────────────
+export const getAdminSettings = async () => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/admin/settings`;
+        logRequest(url, 'GET');
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: buildHeaders(token),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data;
+    } catch (error) {
+        throw error;
+    }
+};
+
+export const updateAdminSettings = async (settingsPayload) => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/admin/settings`;
+        logRequest(url, 'PUT', settingsPayload);
+
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: buildHeaders(token),
+            body: JSON.stringify(settingsPayload),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        return data;
     } catch (error) {
         throw error;
     }

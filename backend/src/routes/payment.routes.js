@@ -5,10 +5,10 @@ import {
     initiateKhalti,
     verifyKhalti,
     khaltiCallback,
-    initiateEsewa,
-    verifyEsewa,
-    esewaCallback,
-    esewaFailure,
+    khaltiWidget,
+    initiateKhaltiTopUp,
+    verifyKhaltiTopUp,
+    requestWithdrawal,
 } from '../controllers/payment.controller.js';
 
 const router = express.Router();
@@ -16,12 +16,11 @@ const router = express.Router();
 // ─── Khalti ──────────────────────────────────────────────────────────────────
 router.post('/khalti/initiate', authenticateToken, requireRole('customer'), initiateKhalti);
 router.post('/khalti/verify', authenticateToken, verifyKhalti);
-router.get('/khalti/callback', khaltiCallback); // No auth — Khalti redirects here
+router.get('/khalti/callback', khaltiCallback); // Khalti redirects here after payment
 
-// ─── eSewa ───────────────────────────────────────────────────────────────────
-router.post('/esewa/initiate', authenticateToken, requireRole('customer'), initiateEsewa);
-router.post('/esewa/verify', authenticateToken, verifyEsewa);
-router.get('/esewa/callback', esewaCallback);   // No auth — eSewa redirects here
-router.get('/esewa/failure', esewaFailure);      // No auth — eSewa redirects here
+// Wallet
+router.post('/khalti/topup/initiate', authenticateToken, initiateKhaltiTopUp);
+router.post('/khalti/topup/verify', authenticateToken, verifyKhaltiTopUp);
+router.post('/withdraw', authenticateToken, requestWithdrawal);
 
 export default router;
