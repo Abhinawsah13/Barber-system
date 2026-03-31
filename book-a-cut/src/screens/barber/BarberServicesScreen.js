@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Modal, TextInput, Alert, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageProvider';
 import { getServices, createService, updateService, deleteService, getProfile, getBarberById } from '../../services/api';
 
 export default function BarberServicesScreen({ navigation }) {
     const { theme } = useTheme();
+    const { t } = useLanguage();
     const [serviceList, setServiceList] = useState([]);
     const [loading, setLoading] = useState(true);
     const [modalVisible, setModalVisible] = useState(false);
@@ -13,16 +15,11 @@ export default function BarberServicesScreen({ navigation }) {
     const [barberId, setBarberId] = useState(null);
     const [skillCategories, setSkillCategories] = useState([]);
 
-    // Form fields
     const [name, setName] = useState('');
     const [price, setPrice] = useState('');
     const [duration, setDuration] = useState('30');
     const [category, setCategory] = useState('');
-    const [serviceModes, setServiceModes] = useState({ salon: { enabled: true }, home: { enabled: false } });
-    const [serviceType, setServiceType] = useState('salon');
     const [saving, setSaving] = useState(false);
-
-    const serviceTypes = ["salon", "home"];
 
     useEffect(() => {
         const init = async () => {
@@ -32,23 +29,12 @@ export default function BarberServicesScreen({ navigation }) {
                     setBarberId(profile._id);
                     fetchBarberServices(profile._id);
 
-                    // Fetch specialties and service modes from the barber's profile
                     const barberRes = await getBarberById(profile._id);
                     const barberData = barberRes?.data || barberRes;
 
                     const cats = barberData?.services || [];
                     setSkillCategories(cats);
                     if (cats.length > 0) setCategory(cats[0]);
-
-                    if (barberData?.serviceModes) {
-                        setServiceModes(barberData.serviceModes);
-                        // If current serviceType is disabled, switch to the first enabled one
-                        if (barberData.serviceModes.salon.enabled) {
-                            setServiceType('salon');
-                        } else if (barberData.serviceModes.home.enabled) {
-                            setServiceType('home');
-                        }
-                    }
                 }
             } catch (e) {
                 console.warn('Init error:', e);
@@ -74,7 +60,6 @@ export default function BarberServicesScreen({ navigation }) {
         setPrice('');
         setDuration('30');
         setCategory(skillCategories[0] || '');
-        setServiceType('salon');
         setEditingService(null);
     };
 
@@ -84,13 +69,12 @@ export default function BarberServicesScreen({ navigation }) {
         setPrice(String(service.price));
         setDuration(String(service.duration_minutes));
         setCategory(service.category || '');
-        setServiceType(service.serviceType || 'salon');
         setModalVisible(true);
     };
 
     const handleSave = async () => {
         if (!name || !price || !duration || !category) {
-            Alert.alert('Missing Info', 'Please fill in all required fields. Ensure you have selected a category.');
+            Alert.alert('Missing Info', 'Please fill in all required fields.');
             return;
         }
 
@@ -100,7 +84,6 @@ export default function BarberServicesScreen({ navigation }) {
             price: Number(price),
             duration_minutes: Number(duration),
             category,
-            serviceType: 'both', // Always default to both
             isActive: true
         };
 
@@ -122,10 +105,10 @@ export default function BarberServicesScreen({ navigation }) {
 
     const handleDelete = (id) => {
         Alert.alert(
-            'Delete Service',
-            'Are you sure you want to remove this service?',
+            t('delete_account'),
+            'Remove this service?',
             [
-                { text: 'Cancel', style: 'cancel' },
+                { text: t('cancel'), style: 'cancel' },
                 {
                     text: 'Delete', style: 'destructive', onPress: async () => {
                         try {
@@ -141,25 +124,10 @@ export default function BarberServicesScreen({ navigation }) {
     };
 
     const renderServiceCard = ({ item }) => {
-        const isDraft = item.isActive === false;
-
         return (
-            <View style={[
-                styles.card,
-                { backgroundColor: theme.card, shadowColor: theme.shadow },
-                isDraft && { borderColor: '#FF9500', borderWidth: 1.5, borderStyle: 'dashed' }
-            ]}>
+            <View style={[styles.card, { backgroundColor: theme.card, shadowColor: theme.shadow }]}>
                 <View style={{ flex: 1 }}>
-                    <View style={styles.cardTitleRow}>
-                        <View>
-                            <Text style={[styles.serviceName, { color: theme.text }]}>{item.name}</Text>
-                            {isDraft && (
-                                <View style={{ backgroundColor: '#FF950020', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 4, alignSelf: 'flex-start' }}>
-                                    <Text style={{ color: '#FF9500', fontSize: 10, fontWeight: 'bold' }}>⚠️ INCOMPLETE DRAFT</Text>
-                                </View>
-                            )}
-                        </View>
-                    </View>
+                    <Text style={[styles.serviceName, { color: theme.text }]}>{item.name}</Text>
                     <Text style={[styles.serviceMeta, { color: theme.textLight }]}>
                         {item.category} • {item.duration_minutes} min
                     </Text>
@@ -168,13 +136,8 @@ export default function BarberServicesScreen({ navigation }) {
                 <View style={styles.rightSection}>
                     <Text style={[styles.servicePrice, { color: theme.primary }]}>Rs. {item.price}</Text>
                     <View style={styles.actionRow}>
-                        <TouchableOpacity
-                            onPress={() => handleEdit(item)}
-                            style={[styles.setupBtn, isDraft && { backgroundColor: '#FF9500' }]}
-                        >
-                            <Text style={[styles.setupBtnText, isDraft && { color: '#FFF' }]}>
-                                {isDraft ? 'Complete' : 'Edit'}
-                            </Text>
+                        <TouchableOpacity onPress={() => handleEdit(item)} style={styles.setupBtn}>
+                            <Text style={styles.setupBtnText}>{t('edit_service')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.iconBtn}>
                             <Text style={{ color: '#FF3B30' }}>✕</Text>
@@ -191,9 +154,9 @@ export default function BarberServicesScreen({ navigation }) {
                 <TouchableOpacity onPress={() => navigation.goBack()}>
                     <Text style={{ fontSize: 24, color: theme.primary }}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>My Services</Text>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>{t('my_services')}</Text>
                 <TouchableOpacity onPress={() => { resetForm(); setModalVisible(true); }}>
-                    <Text style={[styles.addText, { color: theme.primary }]}>+ Add</Text>
+                    <Text style={[styles.addText, { color: theme.primary }]}>+ {t('add_service')}</Text>
                 </TouchableOpacity>
             </View>
 
@@ -207,12 +170,12 @@ export default function BarberServicesScreen({ navigation }) {
                     contentContainerStyle={styles.listContent}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
-                            <Text style={{ color: theme.textLight, fontSize: 16 }}>No services added yet.</Text>
+                            <Text style={{ color: theme.textLight, fontSize: 16 }}>{t('no_services')}</Text>
                             <TouchableOpacity
                                 style={[styles.addFirstBtn, { backgroundColor: theme.primary }]}
                                 onPress={() => setModalVisible(true)}
                             >
-                                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Add Your First Service</Text>
+                                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{t('add_first_service')}</Text>
                             </TouchableOpacity>
                         </View>
                     }
@@ -223,41 +186,35 @@ export default function BarberServicesScreen({ navigation }) {
                 <View style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
                         <Text style={[styles.modalTitle, { color: theme.text }]}>
-                            {editingService ? 'Edit Service' : 'Add New Service'}
+                            {editingService ? t('edit_service') : t('add_new_service')}
                         </Text>
 
                         <ScrollView showsVerticalScrollIndicator={false}>
-                            <Text style={[styles.label, { color: theme.textMuted }]}>Derived From Category</Text>
-                            {skillCategories.length === 0 ? (
-                                <Text style={{ color: '#FF3B30', fontSize: 12, marginBottom: 10 }}>
-                                    You must add service categories to your profile first!
-                                </Text>
-                            ) : (
-                                <View style={styles.chipRow}>
-                                    {skillCategories.map(s => (
-                                        <TouchableOpacity
-                                            key={s}
-                                            onPress={() => setCategory(s)}
-                                            style={[styles.chip, category === s ? { backgroundColor: theme.primary } : { backgroundColor: theme.border + '20' }]}
-                                        >
-                                            <Text style={{ color: category === s ? '#FFF' : theme.text }}>{s}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            )}
+                            <Text style={[styles.label, { color: theme.textMuted }]}>{t('category')}</Text>
+                            <View style={styles.chipRow}>
+                                {skillCategories.map(s => (
+                                    <TouchableOpacity
+                                        key={s}
+                                        onPress={() => setCategory(s)}
+                                        style={[styles.chip, category === s ? { backgroundColor: theme.primary } : { backgroundColor: theme.border + '20' }]}
+                                    >
+                                        <Text style={{ color: category === s ? '#FFF' : theme.text }}>{s}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
 
-                            <Text style={[styles.label, { color: theme.textMuted }]}>Service Name</Text>
+                            <Text style={[styles.label, { color: theme.textMuted }]}>{t('service_name')}</Text>
                             <TextInput
                                 style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
                                 value={name}
                                 onChangeText={setName}
-                                placeholder="Service Name (e.g. Skin Fade)"
+                                placeholder="..."
                                 placeholderTextColor={theme.textMuted}
                             />
 
                             <View style={styles.row}>
                                 <View style={{ flex: 1, marginRight: 10 }}>
-                                    <Text style={[styles.label, { color: theme.textMuted }]}>Price (Rs.)</Text>
+                                    <Text style={[styles.label, { color: theme.textMuted }]}>{t('price')}</Text>
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
                                         value={price}
@@ -268,7 +225,7 @@ export default function BarberServicesScreen({ navigation }) {
                                     />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={[styles.label, { color: theme.textMuted }]}>Duration (min)</Text>
+                                    <Text style={[styles.label, { color: theme.textMuted }]}>{t('duration')}</Text>
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
                                         value={duration}
@@ -285,14 +242,14 @@ export default function BarberServicesScreen({ navigation }) {
                                     style={[styles.modalBtn, { backgroundColor: theme.border + '40' }]}
                                     onPress={() => setModalVisible(false)}
                                 >
-                                    <Text style={{ color: theme.text }}>Cancel</Text>
+                                    <Text style={{ color: theme.text }}>{t('cancel')}</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     style={[styles.modalBtn, { backgroundColor: theme.primary }]}
                                     onPress={handleSave}
                                     disabled={saving || skillCategories.length === 0}
                                 >
-                                    {saving ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Save Service</Text>}
+                                    {saving ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{t('save_service')}</Text>}
                                 </TouchableOpacity>
                             </View>
                         </ScrollView>

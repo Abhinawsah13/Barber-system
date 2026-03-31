@@ -10,6 +10,7 @@ import {
     updateBarberProfile, getProfile, getBarberById, getBarberRating,
 } from "../../services/api";
 import StarRating from "../../components/shared/StarRating";
+import { Ionicons } from '@expo/vector-icons';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -25,7 +26,6 @@ const EXP_OPTIONS = [
     { label: '6+ yrs', value: 6 },
 ];
 
-// ── Main Screen ───────────────────────────────────────────────────────────────
 export default function BarberEditProfileScreen({ navigation }) {
     const { theme } = useTheme();
     const [pageLoading, setPageLoading] = useState(true);
@@ -41,6 +41,11 @@ export default function BarberEditProfileScreen({ navigation }) {
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
     const [profileImage, setProfileImage] = useState('');
+    const [bio, setBio] = useState('');
+
+    // Change Detection
+    const [initialData, setInitialData] = useState(null);
+    const [hasChanges, setHasChanges] = useState(false);
 
     // Salon / Location details
     const [shopName, setShopName] = useState('');
@@ -97,12 +102,6 @@ export default function BarberEditProfileScreen({ navigation }) {
 
                     setSalonEnabled(isSalon);
                     setHomeEnabled(isHome);
-                } else if (barber.service_type) {
-                    // Legacy fallback
-                    const type = barber.service_type;
-                    setServiceModeSelection(type);
-                    setSalonEnabled(type === 'salon' || type === 'both');
-                    setHomeEnabled(type === 'home' || type === 'both');
                 }
 
                 if (barber.services?.length) {
@@ -137,14 +136,92 @@ export default function BarberEditProfileScreen({ navigation }) {
                     }
                 }
                 if (barber.subscription_plan) setSubscriptionPlan(barber.subscription_plan);
+                if (barber.bio) setBio(barber.bio);
+
+                // Pricing
+                if (barber.pricing) {
+                    if (barber.pricing.salonValue) setSalonPrice(barber.pricing.salonValue.toString());
+                    if (barber.pricing.homeValue) setHomePrice(barber.pricing.homeValue.toString());
+                    if (barber.pricing.homeSurcharge) setHomeTravelFee(barber.pricing.homeSurcharge.toString());
+                }
+
+                // Capture initial state for change detection
+                setInitialData({
+                    fullName: user.username || '',
+                    phone: user.phone || '',
+                    profileImage: user.profile_image || '',
+                    bio: barber.bio || '',
+                    serviceModeSelection: barber.serviceModes?.salon && barber.serviceModes?.home ? 'both' : (barber.serviceModes?.home ? 'home' : 'salon'),
+                    selectedServices: barber.services || [],
+                    otherService: barber.services?.filter(s => !SERVICES_LIST.includes(s)).join(', ') || '',
+                    shopName: barber.location?.address || '',
+                    city: barber.location?.city || '',
+                    fullAddress: barber.location?.fullAddress || '',
+                    serviceArea: barber.location?.serviceArea || '',
+                    salonDays: barber.availability?.salon?.workingDays || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                    salonOpen: barber.availability?.salon?.openTime || '09:00',
+                    salonClose: barber.availability?.salon?.closeTime || '19:00',
+                    homeDays: barber.availability?.home?.workingDays || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                    homeOpen: barber.availability?.home?.openTime || '10:00',
+                    homeClose: barber.availability?.home?.closeTime || '18:00',
+                    subscriptionPlan: barber.subscription_plan || 'free',
+                    salonPrice: barber.pricing?.salonValue?.toString() || '',
+                    homePrice: barber.pricing?.homeValue?.toString() || '',
+                    homeTravelFee: barber.pricing?.homeSurcharge?.toString() || '',
+                });
             }
             if (rating) setRatingData(rating);
+
         } catch (e) {
             console.log('loadProfile error:', e.message);
         } finally {
             setPageLoading(false);
         }
     };
+
+    // ── Change Detection ─────────────────────────────────────────────────────
+    useEffect(() => {
+        if (!initialData) return;
+
+        const currentData = {
+            fullName,
+            phone,
+            profileImage,
+            bio,
+            serviceModeSelection,
+            selectedServices: [...selectedServices].sort(),
+            otherService,
+            shopName,
+            city,
+            fullAddress,
+            serviceArea,
+            salonDays: [...salonDays].sort(),
+            salonOpen,
+            salonClose,
+            homeDays: [...homeDays].sort(),
+            homeOpen,
+            homeClose,
+            subscriptionPlan,
+            salonPrice,
+            homePrice,
+            homeTravelFee,
+        };
+
+        const isChanged = JSON.stringify(currentData) !== JSON.stringify({
+            ...initialData,
+            selectedServices: [...initialData.selectedServices].sort(),
+            salonDays: [...initialData.salonDays].sort(),
+            homeDays: [...initialData.homeDays].sort(),
+        });
+
+        setHasChanges(isChanged);
+    }, [
+        fullName, phone, profileImage, bio, serviceModeSelection,
+        selectedServices, otherService, shopName, city, fullAddress,
+        serviceArea, salonDays, salonOpen, salonClose, homeDays,
+        homeOpen, homeClose, subscriptionPlan, salonPrice, homePrice,
+        homeTravelFee, initialData
+    ]);
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     const pickImage = async () => {
@@ -154,7 +231,7 @@ export default function BarberEditProfileScreen({ navigation }) {
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
             aspect: [1, 1],
-            quality: 0.2,     // ⬇ reduced from 0.5 — keeps base64 small enough for API
+            quality: 0.2,
             base64: true,
         });
         if (!result.canceled) setProfileImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
@@ -184,7 +261,10 @@ export default function BarberEditProfileScreen({ navigation }) {
         setSaving(true);
         try {
             await updateBarberProfile({
+                fullName,
+                phone,
                 services: finalServices,
+                bio,
                 experience_years: expValue,
                 serviceModes: {
                     salon: showSalon,
@@ -210,11 +290,16 @@ export default function BarberEditProfileScreen({ navigation }) {
                         isActive: homeEnabled
                     }
                 },
+                pricing: {
+                    salonValue: parseFloat(salonPrice) || 0,
+                    homeValue: parseFloat(homePrice) || 0,
+                    homeSurcharge: parseFloat(homeTravelFee) || 0,
+                },
                 profile_image: profileImage,
                 is_verified_barber: true,
                 subscription_plan: subscriptionPlan,
             });
-            Alert.alert('Saved!', 'Your profile is live and visible to customers.');
+            Alert.alert('Success', 'Profile updated successfully!');
             navigation.goBack();
         } catch (e) {
             Alert.alert('Error', e.message || 'Failed to save profile');
@@ -233,326 +318,241 @@ export default function BarberEditProfileScreen({ navigation }) {
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-
-            {/* Header */}
             <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <Text style={[styles.backText, { color: theme.text }]}>←</Text>
+                    <Ionicons name="arrow-back" size={24} color={theme.text} />
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Barber Profile</Text>
-                <View style={{ width: 40 }} />
+                <Text style={[styles.headerTitle, { color: theme.text }]}>My Profile</Text>
+                <TouchableOpacity onPress={handleSave} disabled={saving || !hasChanges}>
+                    {saving ? <ActivityIndicator size="small" color={theme.primary} /> : <Text style={[styles.saveHeaderTxt, { color: hasChanges ? theme.primary : theme.textMuted }]}>Save</Text>}
+                </TouchableOpacity>
             </View>
 
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
                 <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-
-                {/* SERVICE MODES */}
-                <Card theme={theme}>
-                    <SectionTitle theme={theme}>Service Modes</SectionTitle>
-                    <View style={styles.modeToggleRow}>
-                        {[
-                            { id: 'salon', label: 'Salon Only', icon: '💈' },
-                            { id: 'home', label: 'Home Only', icon: '🏠' },
-                            { id: 'both', label: 'Both', icon: '✨' }
-                        ].map(mode => (
-                            <TouchableOpacity
-                                key={mode.id}
-                                style={[
-                                    styles.modeToggleBtn,
-                                    { borderColor: theme.border, backgroundColor: theme.card },
-                                    serviceModeSelection === mode.id && { backgroundColor: theme.primary + '15', borderColor: theme.primary }
-                                ]}
-                                onPress={() => {
-                                    setServiceModeSelection(mode.id);
-                                    setSalonEnabled(mode.id === 'salon' || mode.id === 'both');
-                                    setHomeEnabled(mode.id === 'home' || mode.id === 'both');
-                                }}
-                            >
-                                <Text style={{ fontSize: 24 }}>{mode.icon}</Text>
-                                <Text style={[styles.modeToggleTxt, { color: theme.text }, serviceModeSelection === mode.id && { color: theme.primary, fontWeight: '700' }]}>{mode.label}</Text>
-                                <View style={[styles.checkbox, { borderColor: theme.border }, serviceModeSelection === mode.id && { backgroundColor: theme.primary, borderColor: theme.primary }]}>
-                                    {serviceModeSelection === mode.id && <Text style={{ color: '#fff', fontSize: 10 }}>✓</Text>}
+                    
+                    {/* PHOTO SECTION */}
+                    <View style={styles.photoSection}>
+                        <TouchableOpacity style={styles.photoContainer} onPress={pickImage}>
+                            {profileImage ? (
+                                <Image source={{ uri: profileImage }} style={styles.photo} />
+                            ) : (
+                                <View style={[styles.photo, styles.photoPlaceholder, { backgroundColor: theme.primary + '20' }]}>
+                                    <Ionicons name="camera" size={30} color={theme.primary} />
                                 </View>
-                            </TouchableOpacity>
-                        ))}
+                            )}
+                            <View style={[styles.editBadge, { backgroundColor: theme.primary }]}>
+                                <Ionicons name="pencil" size={14} color="#FFF" />
+                            </View>
+                        </TouchableOpacity>
+                        <Text style={[styles.photoHint, { color: theme.textLight }]}>Tap to change profile picture</Text>
                     </View>
-                </Card>
 
-                {/* SUBSCRIPTION PLAN */}
-                <Card theme={theme}>
-                    <SectionTitle theme={theme}>Subscription Plan</SectionTitle>
-                    <View style={styles.typeRow}>
-                        {[
-                            { id: 'free', label: 'Basic (10%)', sub: 'Standard Commission' },
-                            { id: 'premium', label: 'Premium (5%)', sub: 'Reduced Commission' }
-                        ].map(plan => (
-                            <TouchableOpacity
-                                key={plan.id}
-                                style={[
-                                    styles.planCard,
-                                    { borderColor: theme.border, backgroundColor: theme.card },
-                                    subscriptionPlan === plan.id && { borderColor: theme.primary, backgroundColor: theme.primary + '10' },
-                                ]}
-                                onPress={() => setSubscriptionPlan(plan.id)}
-                            >
-                                <Text style={[
-                                    styles.planLabel, { color: theme.text },
-                                    subscriptionPlan === plan.id && { color: theme.primary, fontWeight: 'bold' }
-                                ]}>
-                                    {plan.label}
-                                </Text>
-                                <Text style={[styles.planSub, { color: theme.textMuted }]}>{plan.sub}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </Card>
+                    {/* BASIC INFO */}
+                    <Card theme={theme}>
+                        <SectionTitle theme={theme}>Personal Information</SectionTitle>
+                        <FieldLabel theme={theme}>Full Name</FieldLabel>
+                        <FieldInput theme={theme} value={fullName} onChangeText={setFullName} placeholder="Enter your full name" />
 
-                {/* PERSONAL INFO */}
-                <Card theme={theme}>
-                    <SectionTitle theme={theme}>Personal Info</SectionTitle>
+                        <FieldLabel theme={theme}>Phone Number</FieldLabel>
+                        <FieldInput theme={theme} value={phone} onChangeText={setPhone} placeholder="Enter your phone number" keyboardType="phone-pad" />
 
-                    <TouchableOpacity style={styles.photoWrap} onPress={pickImage}>
-                        {profileImage ? (
-                            <Image source={{ uri: profileImage }} style={styles.photo} />
-                        ) : (
-                            <View style={[styles.photo, styles.photoPlaceholder, { borderColor: theme.primary }]}>
-                                <Text style={{ fontSize: 34, color: theme.primary }}>✂</Text>
-                                <div style={[styles.photoBadge, { backgroundColor: theme.primary }]}>
-                                    <Text style={{ color: '#fff', fontSize: 14, lineHeight: 18 }}>−</Text>
-                                </div>
+                        <FieldLabel theme={theme}>Bio</FieldLabel>
+                        <FieldInput theme={theme} value={bio} onChangeText={setBio} placeholder="Describe yourself..." multiline numberOfLines={3} style={{ height: 80, textAlignVertical: 'top' }} />
+                    </Card>
+
+                    {/* SERVICE MODES */}
+                    <Card theme={theme}>
+                        <SectionTitle theme={theme}>Service Modes</SectionTitle>
+                        <View style={styles.modeToggleRow}>
+                            {['salon', 'home', 'both'].map(mode => (
+                                <TouchableOpacity
+                                    key={mode}
+                                    style={[
+                                        styles.modeBtn,
+                                        { borderColor: theme.border, backgroundColor: theme.background },
+                                        serviceModeSelection === mode && { borderColor: theme.primary, backgroundColor: theme.primary + '10' }
+                                    ]}
+                                    onPress={() => setServiceModeSelection(mode)}
+                                >
+                                    <Text style={[styles.modeBtnText, { color: theme.text }, serviceModeSelection === mode && { color: theme.primary, fontWeight: '700' }]}>
+                                        {mode === 'both' ? 'Both' : mode === 'home' ? 'Home Only' : 'Salon Only'}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </Card>
+
+                    {/* LOCATION DETAILS (Salon / Both) */}
+                    {showSalon && (
+                        <Card theme={theme}>
+                            <SectionTitle theme={theme}>Salon Details</SectionTitle>
+                            <FieldLabel theme={theme}>Shop Name / Address</FieldLabel>
+                            <FieldInput theme={theme} value={shopName} onChangeText={setShopName} placeholder="e.g. 123 Main St" />
+
+                            <FieldLabel theme={theme}>City</FieldLabel>
+                            <FieldInput theme={theme} value={city} onChangeText={setCity} placeholder="e.g. Kathmandu" />
+
+                            <FieldLabel theme={theme}>Full Address</FieldLabel>
+                            <FieldInput theme={theme} value={fullAddress} onChangeText={setFullAddress} placeholder="Detailed address..." />
+                        </Card>
+                    )}
+
+                    {/* HOME SERVICE AREA (Home / Both) */}
+                    {showHome && (
+                        <Card theme={theme}>
+                            <SectionTitle theme={theme}>Home Service Details</SectionTitle>
+                            <FieldLabel theme={theme}>Service Area / Coverage</FieldLabel>
+                            <FieldInput theme={theme} value={serviceArea} onChangeText={setServiceArea} placeholder="Area you cover..." />
+                        </Card>
+                    )}
+
+                    {/* SERVICES */}
+                    <Card theme={theme}>
+                        <SectionTitle theme={theme}>Your Services</SectionTitle>
+                        <View style={styles.chipsWrap}>
+                            {SERVICES_LIST.map(s => (
+                                <TouchableOpacity
+                                    key={s}
+                                    style={[
+                                        styles.chip,
+                                        { borderColor: theme.border, backgroundColor: theme.background },
+                                        selectedServices.includes(s) && { borderColor: theme.primary, backgroundColor: theme.primary + '15' },
+                                    ]}
+                                    onPress={() => toggleService(s)}
+                                >
+                                    <Text style={[styles.chipTxt, { color: theme.text }, selectedServices.includes(s) && { color: theme.primary, fontWeight: '600' }]}>{s}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                        {selectedServices.includes('Others') && (
+                            <View style={{ marginTop: 12 }}>
+                                <FieldLabel theme={theme}>Custom Services (comma separated)</FieldLabel>
+                                <FieldInput theme={theme} value={otherService} onChangeText={setOtherService} placeholder="Head Massage, Beard Wash..." />
                             </View>
                         )}
-                        <Text style={[styles.tapPhoto, { color: theme.textMuted }]}>Tap to upload photo</Text>
-                    </TouchableOpacity>
-
-                    <FieldLabel theme={theme}>Full Name</FieldLabel>
-                    <FieldInput theme={theme} value={fullName} onChangeText={setFullName}
-                        placeholder={showSalon ? 'e.g. Bikash Thapa' : 'e.g. Aarav Sharma'} />
-
-                    <FieldLabel theme={theme}>Phone Number</FieldLabel>
-                    <FieldInput theme={theme} value={phone} onChangeText={setPhone}
-                        placeholder="e.g. 98XXXXXXXX" keyboardType="phone-pad" />
-                </Card>
-
-                {/* LOCATION DETAILS (Salon / Both) */}
-                {showSalon && (
-                    <Card theme={theme}>
-                        <SectionTitle theme={theme}>Location Details</SectionTitle>
-
-                        <FieldLabel theme={theme}>Shop Name / Address</FieldLabel>
-                        <FieldInput theme={theme} value={shopName} onChangeText={setShopName}
-                            placeholder="e.g. 123 Main St, Kathmandu" />
-
-                        <FieldLabel theme={theme}>City</FieldLabel>
-                        <FieldInput theme={theme} value={city} onChangeText={setCity}
-                            placeholder="e.g. Kathmandu" />
-
-                        <FieldLabel theme={theme}>Full Address</FieldLabel>
-                        <FieldInput theme={theme} value={fullAddress} onChangeText={setFullAddress}
-                            placeholder="e.g. Near Ratna Park, Kathmandu" />
                     </Card>
-                )}
 
-                {/* HOME SERVICE AREA (Home / Both) */}
-                {showHome && (
+                    {/* EXPERIENCE */}
                     <Card theme={theme}>
-                        <SectionTitle theme={theme} accent={showBoth}>
-                            {showBoth ? 'Home Service Area' : 'Service Area'}
-                        </SectionTitle>
-
-                        {!showBoth && (
-                            <>
-                                <FieldLabel theme={theme}>City</FieldLabel>
-                                <FieldInput theme={theme} value={city} onChangeText={setCity}
-                                    placeholder="e.g. Kathmandu" />
-                            </>
-                        )}
-
-                        <FieldLabel theme={theme}>Area / Neighbourhood</FieldLabel>
-                        <FieldInput theme={theme} value={serviceArea} onChangeText={setServiceArea}
-                            placeholder="Enter service area" />
-
-                        <View style={[styles.infoBox, { backgroundColor: theme.primary + '15', borderColor: theme.primary + '40' }]}>
-                            <Text style={{ color: theme.primary, fontSize: 12, lineHeight: 17 }}>
-                                {showBoth
-                                    ? 'Clients can book you at your salon or request home visits.'
-                                    : "You travel to clients' homes. Make sure your coverage area is accurate."}
-                            </Text>
+                        <SectionTitle theme={theme}>Experience</SectionTitle>
+                        <View style={styles.expRow}>
+                            {EXP_OPTIONS.map(({ label, value }) => (
+                                <TouchableOpacity
+                                    key={value}
+                                    style={[
+                                        styles.expBtn,
+                                        { borderColor: theme.border, backgroundColor: theme.background },
+                                        expValue === value && { backgroundColor: theme.primary, borderColor: theme.primary },
+                                    ]}
+                                    onPress={() => setExpValue(value)}
+                                >
+                                    <Text style={[styles.expTxt, { color: theme.text }, expValue === value && { color: '#fff', fontWeight: '700' }]}>{label}</Text>
+                                </TouchableOpacity>
+                            ))}
                         </View>
                     </Card>
-                )}
 
-                {/* SERVICES */}
-                <Card theme={theme}>
-                    <RowLabel theme={theme}>Services</RowLabel>
-                    <View style={styles.chipsWrap}>
-                        {SERVICES_LIST.map(s => (
-                            <TouchableOpacity
-                                key={s}
-                                style={[
-                                    styles.chip,
-                                    { borderColor: theme.border, backgroundColor: theme.background },
-                                    selectedServices.includes(s) && { borderColor: theme.primary, backgroundColor: theme.primary + '15' },
-                                ]}
-                                onPress={() => toggleService(s)}
-                            >
-                                <Text style={[
-                                    styles.chipTxt, { color: theme.text },
-                                    selectedServices.includes(s) && { color: theme.primary, fontWeight: '600' },
-                                ]}>{s}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-
-                    {selectedServices.includes('Others') && (
-                        <View style={{ marginTop: 12 }}>
-                            <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>Custom Services (comma separated)</Text>
-                            <TextInput
-                                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-                                value={otherService}
-                                onChangeText={setOtherService}
-                                placeholder="Head Massage, Beard Wash..."
-                                placeholderTextColor={theme.textMuted}
-                            />
-                        </View>
-                    )}
-                </Card>
-
-                {/* PRICING */}
-                {(salonEnabled || homeEnabled) && (
+                    {/* PRICING */}
                     <Card theme={theme}>
-                        <SectionTitle theme={theme}>Pricing Configuration</SectionTitle>
-
+                        <SectionTitle theme={theme}>Pricing Configuration (Starting Prices)</SectionTitle>
                         {salonEnabled && (
                             <View style={{ marginBottom: homeEnabled ? 20 : 0 }}>
-                                <RowLabel theme={theme} style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>💈 Salon Starting Price</RowLabel>
-                                <View style={styles.priceInputRow}>
-                                    <Text style={[styles.priceCurrLarge, { color: theme.primary }]}>Rs.</Text>
-                                    <TextInput
-                                        style={[styles.priceInputLarge, { color: theme.primary, borderBottomColor: theme.primary }]}
-                                        value={salonPrice} onChangeText={setSalonPrice}
-                                        placeholder="300" placeholderTextColor={theme.primary + '60'}
-                                        keyboardType="numeric"
-                                    />
-                                    <Text style={[styles.perUnit, { color: theme.textMuted }]}>/ service</Text>
-                                </View>
+                                <FieldLabel theme={theme}>Salon Service (Rs.)</FieldLabel>
+                                <FieldInput theme={theme} value={salonPrice} onChangeText={setSalonPrice} placeholder="300" keyboardType="numeric" />
                             </View>
                         )}
-
                         {homeEnabled && (
-                            <View style={{ marginTop: salonEnabled ? 10 : 0 }}>
-                                <RowLabel theme={theme} style={{ fontSize: 12, marginBottom: 4, opacity: 0.7 }}>🏠 Home Base Price</RowLabel>
-                                <View style={styles.priceInputRow}>
-                                    <Text style={[styles.priceCurrLarge, { color: theme.primary }]}>Rs.</Text>
-                                    <TextInput
-                                        style={[styles.priceInputLarge, { color: theme.primary, borderBottomColor: theme.primary }]}
-                                        value={homePrice} onChangeText={setHomePrice}
-                                        placeholder="500" placeholderTextColor={theme.primary + '60'}
-                                        keyboardType="numeric"
-                                    />
-                                    <Text style={[styles.perUnit, { color: theme.textMuted }]}>/ visit</Text>
-                                </View>
-
-                                <RowLabel theme={theme} style={{ fontSize: 12, marginTop: 16, marginBottom: 4, opacity: 0.7 }}>📍 Home Travel Surcharge</RowLabel>
-                                <View style={styles.priceInputRow}>
-                                    <Text style={[styles.priceCurrLarge, { color: theme.primary }]}>+ Rs.</Text>
-                                    <TextInput
-                                        style={[styles.priceInputLarge, { color: theme.primary, borderBottomColor: theme.primary }]}
-                                        value={homeTravelFee} onChangeText={setHomeTravelFee}
-                                        placeholder="100" placeholderTextColor={theme.primary + '60'}
-                                        keyboardType="numeric"
-                                    />
-                                    <Text style={[styles.perUnit, { color: theme.textMuted }]}>travel fee</Text>
-                                </View>
-                            </View>
+                            <>
+                                <FieldLabel theme={theme}>Home Base Price (Rs.)</FieldLabel>
+                                <FieldInput theme={theme} value={homePrice} onChangeText={setHomePrice} placeholder="500" keyboardType="numeric" />
+                                <FieldLabel theme={theme}>Home Travel Surcharge (Rs.)</FieldLabel>
+                                <FieldInput theme={theme} value={homeTravelFee} onChangeText={setHomeTravelFee} placeholder="100" keyboardType="numeric" />
+                            </>
                         )}
                     </Card>
-                )}
 
-                {/* SAVE */}
-                <TouchableOpacity
-                    style={[styles.saveBtn, { backgroundColor: theme.primary }, saving && { opacity: 0.7 }]}
-                    onPress={handleSave}
-                    disabled={saving}
-                >
-                    {saving
-                        ? <ActivityIndicator color="#fff" />
-                        : <Text style={styles.saveTxt}>Save & Continue →</Text>
-                    }
-                </TouchableOpacity>
+                    {/* WORKING HOURS (Simplified) */}
+                    <Card theme={theme}>
+                        <SectionTitle theme={theme}>Working Hours</SectionTitle>
+                        <View style={styles.hoursRow}>
+                            <View style={styles.hourBox}>
+                                <Text style={[styles.hourLab, { color: theme.textLight }]}>Opens</Text>
+                                <FieldInput theme={theme} value={salonOpen} onChangeText={setSalonOpen} placeholder="09:00" />
+                            </View>
+                            <Text style={{ marginTop: 25, color: theme.textLight }}>—</Text>
+                            <View style={styles.hourBox}>
+                                <Text style={[styles.hourLab, { color: theme.textLight }]}>Closes</Text>
+                                <FieldInput theme={theme} value={salonClose} onChangeText={setSalonClose} placeholder="19:00" />
+                            </View>
+                        </View>
+                    </Card>
 
-                <View style={{ height: 40 }} />
+                    <TouchableOpacity 
+                        style={[styles.saveBtn, { backgroundColor: theme.primary }, (saving || !hasChanges) && { opacity: 0.5 }]} 
+                        onPress={handleSave} 
+                        disabled={saving || !hasChanges}
+                    >
+                        {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>Update Profile</Text>}
+                    </TouchableOpacity>
+
+                    <View style={{ height: 40 }} />
                 </ScrollView>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
 
-// ── Helper components ─────────────────────────────────────────────────────────
-function Card({ theme, children, style }) {
-    return <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }, style]}>{children}</View>;
+// Helpers
+function Card({ theme, children }) {
+    return <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>{children}</View>;
 }
-function SectionTitle({ theme, children, accent }) {
-    return <Text style={[styles.sectionTitle, { color: accent ? theme.primary : theme.text }]}>{children}</Text>;
-}
-function RowLabel({ theme, children, style }) {
-    return <Text style={[styles.rowLabel, { color: theme.text }, style]}>{children}</Text>;
+function SectionTitle({ theme, children }) {
+    return <Text style={[styles.sectionTitle, { color: theme.text }]}>{children}</Text>;
 }
 function FieldLabel({ theme, children }) {
-    return <Text style={[styles.fieldLabel, { color: theme.text }]}>{children}</Text>;
+    return <Text style={[styles.fieldLab, { color: theme.textLight }]}>{children}</Text>;
 }
-function FieldInput({ theme, ...props }) {
-    return (
-        <TextInput
-            style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-            placeholderTextColor={theme.textMuted}
-            {...props}
-        />
-    );
+function FieldInput({ theme, style, ...props }) {
+    return <TextInput style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }, style]} placeholderTextColor={theme.textLight} {...props} />;
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     container: { flex: 1 },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1 },
     backBtn: { padding: 4 },
-    backText: { fontSize: 24, fontWeight: 'bold' },
     headerTitle: { fontSize: 18, fontWeight: '700' },
+    saveHeaderTxt: { fontSize: 16, fontWeight: '700' },
     content: { padding: 16 },
 
+    photoSection: { alignItems: 'center', marginBottom: 24 },
+    photoContainer: { width: 90, height: 90, borderRadius: 45, position: 'relative' },
+    photo: { width: '100%', height: '100%', borderRadius: 45 },
+    photoPlaceholder: { justifyContent: 'center', alignItems: 'center' },
+    editBadge: { position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFF' },
+    photoHint: { fontSize: 11, marginTop: 6 },
+
     card: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 14 },
-    sectionTitle: { fontSize: 15, fontWeight: '700', marginBottom: 12 },
-    rowLabel: { fontSize: 14, fontWeight: '600', marginBottom: 10 },
-    fieldLabel: { fontSize: 13, fontWeight: '600', marginTop: 10, marginBottom: 6, color: '#888' },
-    input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: Platform.OS === 'ios' ? 12 : 9, fontSize: 15, marginBottom: 4 },
+    sectionTitle: { fontSize: 15, fontWeight: '700', marginBottom: 15 },
+    fieldLab: { fontSize: 12, fontWeight: '600', marginBottom: 6 },
+    input: { borderWidth: 1, borderRadius: 10, padding: 10, fontSize: 14, marginBottom: 10 },
 
-    modeToggleRow: { flexDirection: 'row', gap: 12 },
-    modeToggleBtn: { flex: 1, padding: 16, borderRadius: 14, borderWidth: 1.5, alignItems: 'center', position: 'relative' },
-    modeToggleTxt: { fontSize: 13, fontWeight: '600', marginTop: 8 },
-    checkbox: { position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, justifyContent: 'center', alignItems: 'center' },
+    modeToggleRow: { flexDirection: 'row', gap: 10 },
+    modeBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1.5, alignItems: 'center' },
+    modeBtnText: { fontSize: 12, fontWeight: '600' },
 
-    typeRow: { flexDirection: 'row', gap: 8 },
-    planCard: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1.5, alignItems: 'center' },
-    planLabel: { fontSize: 13 },
-    planSub: { fontSize: 10, marginTop: 2, textAlign: 'center' },
+    chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
+    chipTxt: { fontSize: 12 },
 
-    photoWrap: { alignItems: 'center', marginBottom: 12, marginTop: 4 },
-    photo: { width: 90, height: 90, borderRadius: 45, marginBottom: 6 },
-    photoPlaceholder: { borderWidth: 2, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' },
-    photoBadge: { position: 'absolute', bottom: 2, right: 2, width: 22, height: 22, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
-    tapPhoto: { fontSize: 12 },
+    expRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+    expBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1 },
+    expTxt: { fontSize: 12 },
 
-    infoBox: { marginTop: 12, padding: 10, borderRadius: 8, borderWidth: 1 },
+    hoursRow: { flexDirection: 'row', gap: 15, alignItems: 'center' },
+    hourBox: { flex: 1 },
+    hourLab: { fontSize: 11, marginBottom: 4 },
 
-    chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
-    chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
-    chipTxt: { fontSize: 13 },
-
-    priceInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
-    priceCurrLarge: { fontSize: 20, fontWeight: '700', marginBottom: 2 },
-    priceInputLarge: { fontSize: 28, fontWeight: '800', borderBottomWidth: 2, paddingBottom: 2, minWidth: 80 },
-    perUnit: { fontSize: 13, marginLeft: 4, marginBottom: 4 },
-
-    saveBtn: { padding: 18, borderRadius: 14, alignItems: 'center', marginTop: 6, elevation: 4 },
-    saveTxt: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    saveBtn: { padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 5 },
+    saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
 });

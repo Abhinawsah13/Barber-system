@@ -1,5 +1,6 @@
 // controllers/service.controller.js
 import Service from '../models/Service.js';
+import BarberProfile from '../models/BarberProfile.js';
 
 // ─── Validation Helper ────────────────────────────────────────────────────────
 const validateServiceInput = ({ name, price, duration_minutes }) => {
@@ -19,6 +20,18 @@ export const createService = async (req, res) => {
         const errors = validateServiceInput({ name, price, duration_minutes });
         if (errors.length > 0) {
             return res.status(400).json({ success: false, message: 'Validation failed', errors });
+        }
+
+        // ✅ Check service limits based on subscription
+        const serviceCount = await Service.countDocuments({ barber: req.user._id, is_active: true });
+        const barberProfile = await BarberProfile.findOne({ user: req.user._id });
+        const maxServices = barberProfile?.subscription_plan === 'premium' ? -1 : 10;
+
+        if (maxServices !== -1 && serviceCount >= maxServices) {
+            return res.status(400).json({
+                success: false,
+                message: `Maximum services limit (${maxServices}) reached. Upgrade to Premium for unlimited services!`
+            });
         }
 
         const service = await Service.create({

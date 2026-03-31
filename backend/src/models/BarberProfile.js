@@ -78,8 +78,8 @@ const barberProfileSchema = new mongoose.Schema({
     },
     subscription_plan: {
         type: String,
-        enum: ['free', 'premium'],
-        default: 'free'
+        enum: ['basic', 'premium', 'free'],
+        default: 'basic'
     },
     is_verified_barber: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
@@ -99,7 +99,7 @@ barberProfileSchema.pre('validate', function () {
 });
 
 // Keep legacy service_type in sync with boolean serviceModes
-barberProfileSchema.pre('save', function () {
+barberProfileSchema.pre('save', async function () {
     if (this.serviceModes) {
         if (this.serviceModes.salon && this.serviceModes.home) {
             this.service_type = 'both';
