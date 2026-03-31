@@ -44,6 +44,11 @@ export const createReview = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Barber ID does not match this booking' });
         }
 
+        // prevent barber from reviewing themselves
+        if (booking.barber.toString() === customerId.toString()) {
+            return res.status(403).json({ success: false, message: 'Barbers cannot review themselves' });
+        }
+
         // prevent duplicate review
         const existingReview = await Review.findOne({ booking: bookingId });
         if (existingReview) {
