@@ -15,18 +15,45 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
+import { useLanguage } from "../../context/LanguageProvider";
 import { getBarbers, getProfile, getMyBookings } from "../../services/api";
 import { getUserData } from "../../services/TokenManager";
 import { formatDate } from '../../utils/dateUtils';
+import io from 'socket.io-client';
+import { SOCKET_BASE_URL } from '../../config/server';
+
+// ─── REUSABLE COMPONENTS ──────────────────────────────────
+const CategoryButton = ({ title, emoji, selected, onPress }) => (
+    <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.8}
+        style={[
+            styles.categoryBtn,
+            selected ? styles.categoryBtnActive : styles.categoryBtnInactive,
+            { transform: [{ scale: selected ? 1 : 0.97 }] }
+        ]}
+    >
+        {emoji ? <Text style={styles.categoryEmoji}>{emoji}</Text> : null}
+        <Text 
+            style={[styles.categoryLabel, { color: selected ? '#ffffff' : '#222222' }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+        >
+            {title}
+        </Text>
+    </TouchableOpacity>
+);
 
 export default function HomeScreen({ navigation }) {
     const { theme } = useTheme();
+    const { t } = useLanguage();
     const [barbers, setBarbers] = useState([]);
+    // ... rest ...
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState("");
     const [userName, setUserName] = useState("Guest");
-    const [greeting, setGreeting] = useState("Welcome");
+    const [greeting, setGreeting] = useState("");
     const [upcomingBookings, setUpcomingBookings] = useState([]);
     const [selectedService, setSelectedService] = useState('all');
     const [profileMissing, setProfileMissing] = useState([]);
@@ -39,8 +66,7 @@ export default function HomeScreen({ navigation }) {
             const future = bookings
                 .filter(b => {
                     if (b.status !== 'confirmed' && b.status !== 'pending') return false;
-                    // Build the real appointment datetime from date + time_slot
-                    const dateStr = new Date(b.date).toISOString().split('T')[0]; // "YYYY-MM-DD"
+                    const dateStr = new Date(b.date).toISOString().split('T')[0];
                     const ts = b.time_slot || '00:00';
                     const [h, m] = ts.split(':').map(Number);
                     const apptTime = new Date(dateStr);
@@ -81,8 +107,6 @@ export default function HomeScreen({ navigation }) {
             const user = await getProfile();
             if (user && user.username) {
                 setUserName(user.username);
-
-                // Check which fields are missing
                 const missing = [];
                 if (!user.phone) missing.push('phone number');
                 if (!user.profile_image) missing.push('profile photo');
@@ -96,12 +120,42 @@ export default function HomeScreen({ navigation }) {
 
     const updateGreeting = () => {
         const hour = new Date().getHours();
-        if (hour < 12) setGreeting("Good Morning!");
-        else if (hour < 18) setGreeting("Good Afternoon!");
-        else setGreeting("Good Evening!");
+        if (hour < 12) setGreeting(t('good_morning'));
+        else if (hour < 18) setGreeting(t('good_afternoon'));
+        else setGreeting(t('good_evening'));
     };
 
     useEffect(() => {
+        let socket;
+        const setupSocket = async () => {
+             const userData = await getUserData();
+             if (userData?._id && userData?.user_type === 'customer') {
+                  socket = io(SOCKET_BASE_URL);
+                  socket.emit('join-user-room', { userId: userData._id, role: 'customer' });
+
+                  socket.on('notification_received', (notification) => {
+                      if (notification?.message) {
+                          Alert.alert('🔔 Notification', notification.message);
+                      }
+                      // Refresh upcoming when a booking update notification arrives
+                      if (notification?.type === 'updated' || notification?.type === 'booked') {
+                          fetchUpcoming();
+                      }
+                  });
+
+                  socket.on('booking-completed', (booking) => {
+                      navigation.navigate('RateBarber', {
+                          bookingId: booking._id,
+                          barberId: booking.barber?._id || booking.barber,
+                          barberName: booking.barber?.username || 'Barber',
+                          barberImage: booking.barber?.profile_image || null,
+                          serviceName: booking.service?.name || null,
+                          date: booking.date,
+                      });
+                  });
+             }
+        };
+
         const checkUserType = async () => {
             const userData = await getUserData();
             if (userData && userData.user_type === 'admin') {
@@ -114,7 +168,14 @@ export default function HomeScreen({ navigation }) {
         fetchUserProfile();
         updateGreeting();
         fetchUpcoming();
-    }, []);
+        setupSocket();
+
+        return () => {
+            if (socket) {
+                socket.disconnect();
+            }
+        };
+    }, [t]); // Added t to dependencies to update greeting on language change
 
     const onRefresh = () => {
         setRefreshing(true);
@@ -126,35 +187,24 @@ export default function HomeScreen({ navigation }) {
 
     const filteredBarbers = barbers.filter((barber) => {
         const text = searchText.toLowerCase();
-
-        // match search
         const matchesSearch =
-            barber.user.username.toLowerCase().includes(text) ||
+            barber.user?.username?.toLowerCase().includes(text) ||
             barber.specialization?.join(" ").toLowerCase().includes(text) ||
             barber.service_type.toLowerCase().includes(text);
 
-        // match service filter
         let matchesService = true;
-
         if (selectedService === "salon") {
-            matchesService =
-                barber.service_type === "salon" ||
-                barber.service_type === "both";
+            matchesService = barber.service_type === "salon" || barber.service_type === "both";
         }
-
         if (selectedService === "home") {
-            matchesService =
-                barber.service_type === "home" ||
-                barber.service_type === "both";
+            matchesService = barber.service_type === "home" || barber.service_type === "both";
         }
-
         return matchesSearch && matchesService;
     });
 
     const renderBarberCard = ({ item }) => {
         const user = item.user || {};
         const name = user.username || "Barber";
-        // _resolvedImage is synced directly on BarberProfile (no populate needed)
         const image = item._resolvedImage || item.profileImage || user.profile_image || null;
         const rating = item.rating?.average || 0;
 
@@ -180,14 +230,11 @@ export default function HomeScreen({ navigation }) {
                         <Text style={[styles.ratingText, { color: theme.textLight }]}>New</Text>
                     )}
                 </View>
-                <TouchableOpacity style={styles.heartBtn}>
-                    <Text style={{ color: '#FFF' }}>❤</Text>
-                </TouchableOpacity>
 
                 <View style={styles.cardContent}>
                     <Text style={[styles.barberName, { color: theme.text }]} numberOfLines={1}>{name}</Text>
                     <Text style={[styles.barberLocation, { color: theme.textLight }]}>
-                        {item.location?.city || 'Nearby'} • {item.experience_years || 0} yrs exp
+                        {item.location?.city || t('nearby')} • {item.experience_years || 0} yrs exp
                     </Text>
 
                     <View style={styles.cardFooter}>
@@ -203,7 +250,7 @@ export default function HomeScreen({ navigation }) {
                                 serviceType: selectedService === 'all' ? undefined : selectedService
                             })}
                         >
-                            <Text style={[styles.bookBtnText, { color: theme.primary }]}>Book Now</Text>
+                            <Text style={[styles.bookBtnText, { color: theme.primary }]}>{t('book_now')}</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -220,16 +267,14 @@ export default function HomeScreen({ navigation }) {
                 {/* Header */}
                 <View style={styles.header}>
                     <View>
-                        <Text style={[styles.greeting, { color: theme.textLight }]}>Hello, {userName} 👋</Text>
+                        <Text style={[styles.greeting, { color: theme.textLight }]}>{t('home')}, {userName} 👋</Text>
                         <Text style={[styles.headerTitle, { color: theme.text }]}>{greeting}</Text>
                     </View>
                     <View style={styles.headerRight}>
                         <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate("Notifications")}>
                             <Text style={{ fontSize: 20 }}>🔔</Text>
-                            <View style={styles.notifBadge} />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => navigation.navigate("UserProfile")}>
-                            {/* Logo instead of Profile Photo as requested */}
                             <View style={styles.logoContainer}>
                                 <Text style={{ fontSize: 24 }}>💇‍♂️</Text>
                             </View>
@@ -242,14 +287,14 @@ export default function HomeScreen({ navigation }) {
                     <Text style={styles.searchIcon}>🔍</Text>
                     <TextInput
                         style={[styles.searchInput, { color: theme.text }]}
-                        placeholder="Find a barber or service..."
+                        placeholder={t('find_barber')}
                         placeholderTextColor={theme.textLight}
                         value={searchText}
                         onChangeText={setSearchText}
                     />
                 </View>
 
-                {/* ── Incomplete Profile Banner ─────────────────────────── */}
+                {/* ── Incomplete Profile Banner ── */}
                 {profileMissing.length > 0 && (
                     <TouchableOpacity
                         style={styles.profileBanner}
@@ -258,7 +303,7 @@ export default function HomeScreen({ navigation }) {
                     >
                         <Text style={styles.profileBannerIcon}>⚠️</Text>
                         <View style={{ flex: 1 }}>
-                            <Text style={styles.profileBannerTitle}>Complete Your Profile</Text>
+                            <Text style={styles.profileBannerTitle}>{t('complete_profile')}</Text>
                             <Text style={styles.profileBannerMsg} numberOfLines={2}>
                                 Missing: {profileMissing.join(', ')}. Tap to complete →
                             </Text>
@@ -266,28 +311,25 @@ export default function HomeScreen({ navigation }) {
                     </TouchableOpacity>
                 )}
 
-                {/* Categories */}
-                <View style={styles.categoriesRow}>
-                    <TouchableOpacity
-                        style={[styles.categoryPill, selectedService === 'all' && styles.catActive]}
+                {/* Categories Grid (Fixed) */}
+                <View style={styles.categoryWrap}>
+                    <CategoryButton
+                        title={t('all_barbers')}
+                        selected={selectedService === 'all'}
                         onPress={() => setSelectedService('all')}
-                    >
-                        <Text style={selectedService === 'all' ? styles.catTextActive : [styles.catText, { color: theme.text }]}>All</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[styles.categoryPill, selectedService === 'salon' && styles.catActive]}
+                    />
+                    <CategoryButton
+                        title={t('salon')}
+                        emoji="💇‍♂️"
+                        selected={selectedService === 'salon'}
                         onPress={() => setSelectedService('salon')}
-                    >
-                        <Text style={selectedService === 'salon' ? styles.catTextActive : [styles.catText, { color: theme.text }]}>💇‍♂️ Salon</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[styles.categoryPill, selectedService === 'home' && styles.catActive]}
+                    />
+                    <CategoryButton
+                        title={t('home_service')}
+                        emoji="🏠"
+                        selected={selectedService === 'home'}
                         onPress={() => setSelectedService('home')}
-                    >
-                        <Text style={selectedService === 'home' ? styles.catTextActive : [styles.catText, { color: theme.text }]}>🏠 Home</Text>
-                    </TouchableOpacity>
+                    />
                 </View>
 
                 {/* Upcoming Appointments */}
@@ -295,13 +337,10 @@ export default function HomeScreen({ navigation }) {
                     <>
                         <View style={styles.sectionHeader}>
                             <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                                Upcoming Appointments
-                                {upcomingBookings.length > 1 ? (
-                                    <Text style={{ color: theme.primary, fontSize: 14 }}> ({upcomingBookings.length})</Text>
-                                ) : null}
+                                {t('upcoming')}
                             </Text>
                             <TouchableOpacity onPress={() => navigation.navigate('MyBookings')}>
-                                <Text style={[styles.seeAll, { color: theme.primary }]}>View All</Text>
+                                <Text style={[styles.seeAll, { color: theme.primary }]}>{t('view_all')}</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -328,15 +367,10 @@ export default function HomeScreen({ navigation }) {
                                             </Text>
                                             <View style={styles.statusBadge}>
                                                 <Text style={styles.statusText}>
-                                                    {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                                                    {booking.status}
                                                 </Text>
                                             </View>
                                         </View>
-                                        {booking.service?.name ? (
-                                            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, maxWidth: 90, textAlign: 'right' }}>
-                                                ✂️ {booking.service.name}
-                                            </Text>
-                                        ) : null}
                                     </View>
 
                                     <View style={styles.upcomingTimeRow}>
@@ -349,38 +383,9 @@ export default function HomeScreen({ navigation }) {
                                     <View style={styles.upcomingActions}>
                                         <TouchableOpacity
                                             style={styles.actionBtnWhite}
-                                            onPress={() => {
-                                                const coords = booking.barber_location?.coordinates;
-                                                const profileCoords = booking.barber?.location?.coordinates;
-                                                const address =
-                                                    booking.barber?.location?.address ||
-                                                    booking.barber?.location?.city ||
-                                                    booking.barber?.address ||
-                                                    booking.customer_address || '';
-                                                if (coords && coords.length === 2) {
-                                                    const [lng, lat] = coords;
-                                                    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
-                                                } else if (profileCoords && profileCoords.length === 2) {
-                                                    const [lng, lat] = profileCoords;
-                                                    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
-                                                } else if (address) {
-                                                    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`);
-                                                } else {
-                                                    Alert.alert('No Location', 'Location info not found for this booking.');
-                                                }
-                                            }}
+                                            onPress={() => navigation.navigate('MyBookings', { bookingId: booking._id })}
                                         >
-                                            <Text style={styles.actionBtnTextPurple}>Get Directions</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={styles.actionBtnTransparent}
-                                            onPress={() => navigation.navigate('BarberDetails', {
-                                                barber: booking.barber,
-                                                barberId: booking.barber?._id || booking.barber,
-                                                serviceType: booking.service_type || 'salon'
-                                            })}
-                                        >
-                                            <Text style={styles.actionBtnTextWhite}>Reschedule</Text>
+                                            <Text style={styles.actionBtnTextPurple}>{t('bookings')}</Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
@@ -395,7 +400,7 @@ export default function HomeScreen({ navigation }) {
                     onPress={() => navigation.navigate("HomeServices", { serviceType: 'home' })}
                 >
                     <View style={styles.hsContent}>
-                        <Text style={styles.hsTitle}>Book Home Service</Text>
+                        <Text style={styles.hsTitle}>{t('home_service')}</Text>
                         <Text style={styles.hsSubtitle}>Haircuts at your doorstep</Text>
                     </View>
                     <View style={styles.hsIcon}>
@@ -406,9 +411,11 @@ export default function HomeScreen({ navigation }) {
                 {/* Top Picks */}
                 <View style={styles.sectionHeader}>
                     <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                        Top {selectedService === 'all' ? 'Recommended' : selectedService === 'salon' ? 'Salon' : 'Home'} Barbers
+                        {selectedService === 'all' ? t('all_barbers') : selectedService === 'salon' ? t('salon') : t('home_service')}
                     </Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('HomeServices', { serviceType: selectedService })}><Text style={[styles.seeAll, { color: theme.primary }]}>View All</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => navigation.navigate('HomeServices', { serviceType: selectedService })}>
+                        <Text style={[styles.seeAll, { color: theme.primary }]}>{t('view_all')}</Text>
+                    </TouchableOpacity>
                 </View>
 
                 {loading ? (
@@ -422,15 +429,13 @@ export default function HomeScreen({ navigation }) {
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={{ paddingRight: 20 }}
                     />
-                ) : null}
-                {!loading && filteredBarbers.length === 0 && (
-                    <Text>No barbers found</Text>
+                ) : (
+                    <Text style={{ color: theme.textLight, marginTop: 10 }}>{t('no_barbers')}</Text>
                 )}
 
                 <View style={{ height: 100 }} />
             </ScrollView>
 
-            {/* Start AI Floating Button */}
             <TouchableOpacity style={styles.fabBtn} onPress={() => navigation.navigate("AIChat")}>
                 <Text style={styles.fabIcon}>✨</Text>
                 <Text style={styles.fabText}>Ask AI</Text>
@@ -525,31 +530,39 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#333',
     },
-    categoriesRow: {
+    categoryWrap: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         marginBottom: 20,
+        gap: 10,
     },
-    categoryPill: {
-        paddingHorizontal: 20,
-        paddingVertical: 10,
-        backgroundColor: '#FFF',
-        borderRadius: 20,
-        marginRight: 10,
+    categoryBtn: {
+        width: 105,
+        height: 46,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: '#EEE',
+        backgroundColor: '#FFF',
+        gap: 4,
+        elevation: 1,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
     },
-    catActive: {
+    categoryBtnActive: {
         backgroundColor: '#9C27B0',
         borderColor: '#9C27B0',
     },
-    catText: {
-        fontWeight: '600',
-        color: '#333',
+    categoryBtnInactive: {
+        backgroundColor: '#FFF',
+        borderColor: '#EEE',
     },
-    catTextActive: {
-        fontWeight: '600',
-        color: '#FFF',
-    },
+    categoryEmoji: { fontSize: 18 },
+    categoryLabel: { fontSize: 12, fontWeight: '700' },
     sectionHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',

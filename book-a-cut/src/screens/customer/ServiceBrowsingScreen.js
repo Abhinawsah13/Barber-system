@@ -32,6 +32,28 @@ const CATEGORY_META = {
 };
 const CATEGORIES = Object.keys(CATEGORY_META);
 
+// ─── REUSABLE COMPONENTS ──────────────────────────────────
+const CategoryButton = ({ title, emoji, selected, onPress }) => (
+    <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.8}
+        style={[
+            styles.categoryBtn,
+            selected ? styles.categoryBtnActive : styles.categoryBtnInactive,
+            { transform: [{ scale: selected ? 1 : 0.97 }] }
+        ]}
+    >
+        <Text style={styles.categoryEmoji}>{emoji}</Text>
+        <Text 
+            style={[styles.categoryLabel, { color: selected ? '#ffffff' : '#222222' }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+        >
+            {title}
+        </Text>
+    </TouchableOpacity>
+);
+
 function ServiceCard({ item, onPress, theme }) {
     return (
         <TouchableOpacity
@@ -205,36 +227,18 @@ export default function ServiceBrowsingScreen({ navigation, route }) {
                 </View>
             </View>
 
-            {/* Category chips */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipRow}
-            >
-                {CATEGORIES.map(cat => {
-                    const active = selectedCategory === cat;
-                    const meta = CATEGORY_META[cat];
-                    return (
-                        <TouchableOpacity
-                            key={cat}
-                            onPress={() => setSelectedCategory(cat)}
-                            activeOpacity={0.8}
-                            style={[
-                                styles.chip,
-                                active ? styles.chipActive : styles.chipInactive,
-                            ]}
-                        >
-                            <Text style={styles.chipEmoji}>{meta.emoji}</Text>
-                            <Text style={[
-                                styles.chipLabel,
-                                { color: active ? '#ffffff' : '#222222' }
-                            ]}>
-                                {cat}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </ScrollView>
+            {/* Category Grid (Wrapping) */}
+            <View style={styles.categoryWrap}>
+                {CATEGORIES.map(cat => (
+                    <CategoryButton
+                        key={cat}
+                        title={cat}
+                        emoji={CATEGORY_META[cat].emoji}
+                        selected={selectedCategory === cat}
+                        onPress={() => setSelectedCategory(cat)}
+                    />
+                ))}
+            </View>
 
             {/* Results count */}
             <View style={styles.resultsRow}>
@@ -320,33 +324,40 @@ const styles = StyleSheet.create({
     searchIcon: { fontSize: 16, marginRight: 8 },
     searchInput: { flex: 1, fontSize: 15 },
 
-    chipRow: {
+    categoryWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
         paddingHorizontal: 16,
-        paddingBottom: 12,
+        paddingBottom: 16,
         paddingTop: 4,
-        flexDirection: 'row',
-        alignItems: 'center',
+        justifyContent: 'flex-start',
+        gap: 10,
     },
-    chip: {
+    categoryBtn: {
+        width: 110,
+        height: 48,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 9,
-        borderRadius: 100,
+        justifyContent: 'center',
+        borderRadius: 12,
         borderWidth: 1.5,
-        marginRight: 10,
-        gap: 5,
+        gap: 6,
+        elevation: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 1,
     },
-    chipActive: {
+    categoryBtnActive: {
         backgroundColor: PURPLE,
         borderColor: PURPLE,
     },
-    chipInactive: {
+    categoryBtnInactive: {
         backgroundColor: '#ffffff',
-        borderColor: '#bbbbbb',
+        borderColor: '#dddddd',
     },
-    chipEmoji: { fontSize: 14 },
-    chipLabel: { fontSize: 13, fontWeight: '700' },
+    categoryEmoji: { fontSize: 16 },
+    categoryLabel: { fontSize: 13, fontWeight: '700' },
 
     resultsRow: { paddingHorizontal: 18, paddingBottom: 8 },
     resultsText: { fontSize: 12 },

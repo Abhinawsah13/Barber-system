@@ -166,6 +166,18 @@ export default function RateBarberScreen({ navigation, route }) {
     const [submitting, setSubmitting] = useState(false);
     const [textFocused, setTextFocused] = useState(false);
     const [submitError, setSubmitError] = useState('');
+    const [userRole, setUserRole] = useState(null);
+
+    React.useEffect(() => {
+        const checkRole = async () => {
+            const userData = await getUserData();
+            setUserRole(userData?.user_type);
+            if (userData?.user_type === 'barber') {
+                setSubmitError('System Restricted: Barbers cannot submit reviews.');
+            }
+        };
+        checkRole();
+    }, []);
 
     const setCat = (key) => (val) => setCatRatings(prev => ({ ...prev, [key]: val }));
     const toggleTag = (tag) => setSelectedTags(prev =>

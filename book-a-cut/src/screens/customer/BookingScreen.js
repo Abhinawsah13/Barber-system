@@ -12,12 +12,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
+import { useLanguage } from "../../context/LanguageProvider";
 import { getServices, getAvailableSlots } from "../../services/api";
 
 export default function BookingScreen({ navigation, route }) {
     const { theme } = useTheme();
+    const { t } = useLanguage();
 
-    // Pull params from previous screen (BarberDetails or HomeServices)
     const {
         barberId,
         barberName,
@@ -27,26 +28,14 @@ export default function BookingScreen({ navigation, route }) {
     } = route.params || {};
 
     const [loading, setLoading] = useState(false);
-
     const mockBarberName = barberName || 'Your Barber';
 
-    // ─── State ────────────────────────────────────────────────────────────────
-
-    // Service type: 'salon', 'home', or 'both'
     const [serviceType, setServiceType] = useState(initialServiceType);
-
-    // Services list — starts with the passed service, or empty while fetching
     const [services, setServices] = useState(service ? [service] : []);
-    const [servicesLoading, setServicesLoading] = useState(!service); // fetch if none passed
-
-    // Track the full selected service OBJECT (not just name) so we have a real _id
+    const [servicesLoading, setServicesLoading] = useState(!service); 
     const [selectedService, setSelectedService] = useState(service || null);
-
-    // Customer address (needed for home service)
     const [customerAddress, setCustomerAddress] = useState('');
 
-    // ─── Fetch services if not passed via params ──────────────────────────────
-    // This happens when coming from HomeServicesScreen which doesn't pass a service
     useEffect(() => {
         if (!service) {
             fetchServices();
@@ -77,12 +66,10 @@ export default function BookingScreen({ navigation, route }) {
         }
     };
 
-    // Re-fetch services if serviceType changes (to filter correctly)
     useEffect(() => {
         fetchServices();
     }, [serviceType]);
 
-    // Generate the next 7 days for the date picker
     const generateDates = () => {
         const days = [];
         const today = new Date();
@@ -102,18 +89,11 @@ export default function BookingScreen({ navigation, route }) {
     };
 
     const dates = generateDates();
-
-    // Default to today
     const [selectedDate, setSelectedDate] = useState(dates[0]);
-
-    // ─── Data Lists ───────────────────────────────────────────────────────────
-
-    // Time slot selection
     const [selectedTime, setSelectedTime] = useState(null);
     const [availableSlots, setAvailableSlots] = useState([]);
     const [slotsLoading, setSlotsLoading] = useState(false);
 
-    // ─── Fetch slots when dependencies change ────────────────────────────────
     useEffect(() => {
         if (barberId && selectedService?._id && selectedDate) {
             fetchSlots();
@@ -131,10 +111,9 @@ export default function BookingScreen({ navigation, route }) {
                 serviceType: serviceType
             });
 
-            // The API returns { slots: [{time, iso, available}] } or []
             const slots = result?.slots || result || [];
             setAvailableSlots(slots);
-            setSelectedTime(null); // Reset when slots change
+            setSelectedTime(null);
         } catch (e) {
             console.warn('Error fetching slots:', e.message);
         } finally {
@@ -142,22 +121,9 @@ export default function BookingScreen({ navigation, route }) {
         }
     };
 
-    // ─── Pricing ──────────────────────────────────────────────────────────────
-
-    const subtotal = selectedService?.price || 0;
-    const taxes = 2.50;
-    const total = subtotal + taxes;
-
-    // ─── Validation ───────────────────────────────────────────────────────────
-
-    // Book Now only enabled when all required fields are chosen AND a real service is selected
-    // selectedService must have a valid _id that's not our placeholder '1'
     const hasRealService = selectedService && selectedService._id && selectedService._id !== '1';
     const canBook = serviceType && hasRealService && selectedDate && selectedTime;
 
-    // ─── Handlers ─────────────────────────────────────────────────────────────
-
-    // Convert "10:00 AM" display format to "10:00" for the backend
     const convertTo24Hour = (timeStr) => {
         const [time, modifier] = timeStr.split(' ');
         let [hours, minutes] = time.split(':');
@@ -168,65 +134,54 @@ export default function BookingScreen({ navigation, route }) {
         return `${hoursStr}:${minutes}`;
     };
 
-    // Navigate to confirmation screen instead of calling API directly
-    // This gives the user a chance to review before confirming
     const handleBookNow = () => {
         if (!hasRealService) {
-            Alert.alert('No Service Selected', 'Please wait for services to load, or select a service.');
+            Alert.alert('No Service Selected', 'Please wait for services to load.');
             return;
         }
         if (!canBook) {
-            Alert.alert('Missing Info', 'Please select a service type, date, and time slot.');
+            Alert.alert('Missing Info', t('select_service_time'));
             return;
         }
 
         const now = new Date();
-        // e.g. "Sun Mar 24 2024" + " " + "10:00 AM" -> "Sun Mar 24 2024 10:00 AM"
         const selectedDateTime = new Date(`${selectedDate.fullDate.toDateString()} ${selectedTime}`);
 
         if (selectedDateTime <= now) {
-            Alert.alert("Invalid Time", "Please select a future time.");
+            Alert.alert("Invalid Time", t('invalid_time'));
             return;
         }
 
-        // Navigate to BookingConfirmation which will call the API
-        // selectedService._id is now a real MongoDB ObjectId from the API
         navigation.navigate('BookingConfirmation', {
-            service: selectedService,          // real service object with valid _id
+            service: selectedService, 
             barber: barber || null,
             barberId: barberId,
             barberName: mockBarberName,
-            date: selectedDate.fullDate.toISOString().split('T')[0], // "YYYY-MM-DD"
-            timeSlot: convertTo24Hour(selectedTime),                  // "HH:MM"
+            date: selectedDate.fullDate.toISOString().split('T')[0],
+            timeSlot: convertTo24Hour(selectedTime),
             serviceType: serviceType,
             customerAddress: customerAddress || 'Kathmandu',
         });
     };
 
-    // ─── Render ───────────────────────────────────────────────────────────────
-
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-
-            {/* Header */}
             <View style={[styles.header, { backgroundColor: theme.background }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
                     <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Book Appointment</Text>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>{t('book_appointment')}</Text>
                 <View style={{ width: 40 }} />
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
-                {/* ── Choose Service ── */}
                 <View style={[styles.cardContainer, { backgroundColor: '#FFF', borderColor: '#EEE' }]}>
-                    <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 0 }]}>Choose Service</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 0 }]}>{t('choose_service')}</Text>
 
                     {servicesLoading ? (
                         <View style={styles.serviceLoadingRow}>
                             <ActivityIndicator color={theme.primary} />
-                            <Text style={[styles.serviceLoadingText, { color: theme.textLight }]}>Loading services...</Text>
+                            <Text style={[styles.serviceLoadingText, { color: theme.textLight }]}>{t('loading_services')}</Text>
                         </View>
                     ) : (() => {
                         const filteredServices = services.filter(s => s.isActive !== false);
@@ -234,7 +189,7 @@ export default function BookingScreen({ navigation, route }) {
                         if (filteredServices.length === 0) {
                             return (
                                 <Text style={{ textAlign: 'center', color: theme.textMuted, padding: 20 }}>
-                                    This barber hasn't added any bookable services yet.
+                                    No bookable services found.
                                 </Text>
                             );
                         }
@@ -269,9 +224,8 @@ export default function BookingScreen({ navigation, route }) {
                     })()}
                 </View>
 
-                {/* ── Pick a Date ── */}
                 <View style={[styles.cardContainer, { backgroundColor: '#FFF', borderColor: '#EEE' }]}>
-                    <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 0 }]}>Pick a Date</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 0 }]}>{t('pick_a_date')}</Text>
 
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingBottom: 5 }}>
                         {dates.map((d, i) => {
@@ -298,19 +252,18 @@ export default function BookingScreen({ navigation, route }) {
                     </ScrollView>
                 </View>
 
-                {/* ── Available Slots ── */}
                 <View style={[styles.cardContainer, { backgroundColor: '#FFF', borderColor: '#EEE' }]}>
-                    <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 0 }]}>Available Slots</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 0 }]}>{t('available_slots')}</Text>
 
                     <View style={styles.timeGrid}>
                         {slotsLoading ? (
                             <View style={{ width: '100%', padding: 20, alignItems: 'center' }}>
                                 <ActivityIndicator color={theme.primary} />
-                                <Text style={{ color: theme.textMuted, marginTop: 8 }}>Checking availability...</Text>
+                                <Text style={{ color: theme.textMuted, marginTop: 8 }}>{t('checking_availability')}</Text>
                             </View>
                         ) : availableSlots.length === 0 ? (
                             <Text style={{ color: theme.textMuted, padding: 10, textAlign: 'center', width: '100%' }}>
-                                No slots available for this date.
+                                {t('no_slots_available')}
                             </Text>
                         ) : (
                             availableSlots.map((slot, i) => {
@@ -346,26 +299,24 @@ export default function BookingScreen({ navigation, route }) {
                         )}
                     </View>
 
-                    {/* Slot Legend */}
                     <View style={styles.legendRow}>
                         <View style={styles.legendItem}>
                             <View style={[styles.legendBox, { backgroundColor: '#FFF', borderColor: '#EAEAEA', borderWidth: 1 }]} />
-                            <Text style={styles.legendText}>Available</Text>
+                            <Text style={styles.legendText}>{t('available')}</Text>
                         </View>
                         <View style={styles.legendItem}>
                             <View style={[styles.legendBox, { backgroundColor: '#B39DDB' }]} />
-                            <Text style={styles.legendText}>Selected</Text>
+                            <Text style={styles.legendText}>{t('selected')}</Text>
                         </View>
                         <View style={styles.legendItem}>
                             <View style={{ width: 14, height: 2, backgroundColor: '#E0E0E0', marginRight: 4 }} />
-                            <Text style={styles.legendText}>Booked</Text>
+                            <Text style={styles.legendText}>{t('booked')}</Text>
                         </View>
                     </View>
                 </View>
 
                 <View style={{ height: 20 }} />
 
-                {/* ── Confirm Booking Button ── */}
                 <TouchableOpacity
                     style={[
                         styles.mockupConfirmBtn,
@@ -379,7 +330,7 @@ export default function BookingScreen({ navigation, route }) {
                         <ActivityIndicator color="#FFF" />
                     ) : (
                         <Text style={[styles.mockupConfirmBtnText, { color: canBook ? '#FFF' : '#A0A0A0' }]}>
-                            {canBook ? 'Confirm Booking →' : 'Select Service & Time'}
+                            {canBook ? `${t('confirm_booking')} →` : t('select_service_time')}
                         </Text>
                     )}
                 </TouchableOpacity>
@@ -388,6 +339,8 @@ export default function BookingScreen({ navigation, route }) {
         </SafeAreaView >
     );
 }
+
+
 
 const styles = StyleSheet.create({
     container: { flex: 1 },

@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
-import { createBookingV2, initiateKhaltiPayment, initiateEsewaPayment } from '../../services/api';
+import { createBookingV2, initiateKhaltiPayment } from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import * as Location from 'expo-location';
 
@@ -176,77 +176,7 @@ export default function BookingConfirmationScreen({ navigation, route }) {
         }
     };
 
-    const handleEsewaPay = async () => {
-        if (!isTimeValid()) {
-            Alert.alert('Invalid Time', 'This time slot has already passed.');
-            return;
-        }
 
-        setPaymentLoading(true);
-        try {
-            const result = await initiateEsewaPayment({
-                barberId,
-                serviceId: service?._id,
-                date,
-                timeSlot,
-                serviceType,
-                customerAddress,
-                notes,
-                customerLat: serviceType === 'home' ? customerLat : null,
-                customerLng: serviceType === 'home' ? customerLng : null,
-                travelCharge: serviceType === 'home' ? travelCharge : 0,
-                amount: totalPrice,
-            });
-
-            if (result.success) {
-                // eSewa uses form submission, so we pass esewaHtml built using esewaParams
-                const { esewaParams } = result;
-                const esewaHtml = `
-                    <!DOCTYPE html>
-                    <html>
-                    <body onload="document.forms[0].submit()">
-                        <div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">
-                            <h2>Redirecting to eSewa...</h2>
-                        </div>
-                        <form action="${esewaParams.action}" method="POST">
-                            <input type="hidden" name="amount" value="${esewaParams.amount}"/>
-                            <input type="hidden" name="tax_amount" value="${esewaParams.tax_amount}"/>
-                            <input type="hidden" name="total_amount" value="${esewaParams.total_amount}"/>
-                            <input type="hidden" name="transaction_uuid" value="${esewaParams.transaction_uuid}"/>
-                            <input type="hidden" name="product_code" value="${esewaParams.product_code}"/>
-                            <input type="hidden" name="product_service_charge" value="${esewaParams.product_service_charge}"/>
-                            <input type="hidden" name="product_delivery_charge" value="${esewaParams.product_delivery_charge}"/>
-                            <input type="hidden" name="success_url" value="${esewaParams.success_url}"/>
-                            <input type="hidden" name="failure_url" value="${esewaParams.failure_url}"/>
-                            <input type="hidden" name="signed_field_names" value="${esewaParams.signed_field_names}"/>
-                            <input type="hidden" name="signature" value="${esewaParams.signature}"/>
-                        </form>
-                    </body>
-                    </html>
-                `;
-
-                navigation.navigate('PaymentWebView', {
-                    gateway: 'esewa',
-                    bookingId: result.bookingId,
-                    amount: totalPrice,
-                    esewaHtml,
-                    onSuccessRoute: 'BookingSuccess',
-                    successParams: { 
-                        barberId, barberName, barberImage: barber?.user?.profile_image || '',
-                        serviceName: service?.name, date: displayDate, time: timeSlot,
-                        price: totalPrice, serviceType, customerLat, customerLng, barberLat, barberLng,
-                        barberAddress: barber?.location?.address || barber?.location?.city || '',
-                    },
-                });
-            } else {
-                Alert.alert('Error', result.message || 'Could not initiate eSewa payment.');
-            }
-        } catch (e) {
-            Alert.alert('Error', e.message || 'Payment initiation failed.');
-        } finally {
-            setPaymentLoading(false);
-        }
-    };
 
     const handleConfirm = async () => {
         // ✅ FIX 1: Block past time booking
@@ -471,29 +401,18 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                     Choose Payment Method
                 </Text>
                 
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                    {/* Khalti */}
+                <View style={{ flexDirection: 'row' }}>
                     <TouchableOpacity
                         style={[styles.payBtn, { backgroundColor: '#5C2D91', opacity: (paymentLoading || loading || timeWarning) ? 0.6 : 1 }]}
                         onPress={handleKhaltiPay}
                         disabled={paymentLoading || loading || timeWarning}
                     >
                         {paymentLoading ? <ActivityIndicator color="#FFF" size="small" /> :
-                            <Text style={styles.payBtnText}>💜 Khalti</Text>}
-                    </TouchableOpacity>
-
-                    {/* eSewa */}
-                    <TouchableOpacity
-                        style={[styles.payBtn, { backgroundColor: '#60BB46', opacity: (paymentLoading || loading || timeWarning) ? 0.6 : 1 }]}
-                        onPress={handleEsewaPay}
-                        disabled={paymentLoading || loading || timeWarning}
-                    >
-                        {paymentLoading ? <ActivityIndicator color="#FFF" size="small" /> :
-                            <Text style={styles.payBtnText}>💚 eSewa</Text>}
+                            <Text style={styles.payBtnText}>💜 Pay with Khalti</Text>}
                     </TouchableOpacity>
                 </View>
 
-                {/* Cash option */}
+                {/* Cash/After-service option */}
                 <TouchableOpacity
                     style={[
                         styles.cashBtn, 
@@ -509,7 +428,7 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                         </View>
                     ) : (
                         <Text style={[styles.cashBtnText, { color: theme.text }]}>
-                            💵 Pay Cash at Salon
+                            {serviceType === 'home' ? '🏠 Pay After Service' : '💵 Pay Cash at Salon'}
                         </Text>
                     )}
                 </TouchableOpacity>

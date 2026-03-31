@@ -15,7 +15,11 @@ export default function BarberDetailsScreen({ navigation, route }) {
     const [loading, setLoading] = useState(!initialBarber);
     const [activeTab, setActiveTab] = useState('Book');
     const [selectedService, setSelectedService] = useState(route.params?.service || null);
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const getTodayStr = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const [selectedDate, setSelectedDate] = useState(getTodayStr());
     const [selectedServiceType, setSelectedServiceType] = useState(route.params?.serviceType || (initialBarber?.serviceModes?.home ? 'home' : 'salon'));
     const [availableSlots, setAvailableSlots] = useState([]);
     const [loadingSlots, setLoadingSlots] = useState(false);
@@ -304,7 +308,13 @@ export default function BarberDetailsScreen({ navigation, route }) {
                     {[...Array(14)].map((_, i) => {
                         const d = new Date();
                         d.setDate(d.getDate() + i);
-                        const dateStr = d.toISOString().split('T')[0];
+                        
+                        // ✅ FIX: Use local date components to avoid timezone shifts (e.g. 31st becomes 31st, not 30th)
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const dayNum = String(d.getDate()).padStart(2, '0');
+                        const dateStr = `${year}-${month}-${dayNum}`;
+                        
                         const isSelected = selectedDate === dateStr;
                         const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                         return (
@@ -338,17 +348,38 @@ export default function BarberDetailsScreen({ navigation, route }) {
                     ) : (
                         availableSlots.map((slot, i) => {
                             const isSelected = selectedSlot?.iso === slot.iso;
+                            const isAvailable = slot.available !== false;
+                            
                             return (
                                 <TouchableOpacity
                                     key={i}
-                                    onPress={() => setSelectedSlot(slot)}
+                                    onPress={() => {
+                                        if (isAvailable) {
+                                            setSelectedSlot(slot);
+                                        } else {
+                                            Alert.alert('Unavailable', 'This time slot is either already booked or in the past.');
+                                        }
+                                    }}
                                     style={[
                                         styles.slot,
-                                        { borderColor: isSelected ? theme.primary : theme.border },
-                                        isSelected && { backgroundColor: theme.primary }
+                                        { 
+                                            borderColor: isSelected ? theme.primary : theme.border,
+                                            backgroundColor: isSelected ? theme.primary : (!isAvailable ? theme.border + '30' : 'transparent'),
+                                            opacity: isAvailable ? 1 : 0.6
+                                        }
                                     ]}
                                 >
-                                    <Text style={[styles.slotText, { color: isSelected ? '#FFF' : theme.textMuted }]}>{slot.time}</Text>
+                                    <Text style={[
+                                        styles.slotText,
+                                        { 
+                                            color: isSelected ? '#FFF' : (isAvailable ? theme.text : theme.textMuted),
+                                            textAlign: 'center',
+                                            fontSize: 10
+                                        }
+                                    ]}>
+                                        {slot.time}
+                                        {!isAvailable && `\n(${slot.reason === 'booked' ? 'Booked' : 'N/A'})`}
+                                    </Text>
                                 </TouchableOpacity>
                             );
                         })
