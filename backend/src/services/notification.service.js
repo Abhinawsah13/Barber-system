@@ -1,4 +1,5 @@
 import Notification from '../models/Notification.js';
+import { sendBookingEmail, sendCancellationEmail, sendConfirmationEmail } from './email.service.js';
 
 /**
  * Helper to emit real-time notifications via Socket.io
@@ -16,19 +17,37 @@ const emitRealTime = (io, userId, event, data) => {
 /**
  * Creates a notification for a user
  */
-export const createNotification = async ({ user, title, message, type, metadata, io }) => {
+export const createNotification = async ({ recipientId, barberId, customerId, message, type, metadata, io }) => {
     try {
+        // If they provided recipientId directly, use it. 
+        // If not, we fall back to barber (as the recipient) OR customer.
+        const finalRecipientId = recipientId || barberId || customerId;
+
         const notification = new Notification({
-            user,
-            title,
+            recipientId: finalRecipientId,
+            barberId,
+            customerId,
             message,
             type,
-            metadata
+            metadata,
+            isRead: false
         });
         await notification.save();
 
-        // Emit real-time event
-        emitRealTime(io, user, 'notification_received', notification);
+        // Emit real-time events
+        if (io) {
+            // Always emit to recipient
+            io.to(`user-${finalRecipientId.toString()}`).emit('notification_received', notification);
+            
+            // If they are a barber, also emit to barber-specific dashboard listener
+            if (barberId) {
+                io.to(`barber-${barberId.toString()}`).emit('notification_received', notification);
+                
+                // Update unread count specifically for barber context
+                const unreadCountBarber = await Notification.countDocuments({ recipientId: barberId, isRead: false });
+                io.to(`barber-${barberId.toString()}`).emit('unread_count_update', { count: unreadCountBarber });
+            }
+        }
 
         return notification;
     } catch (error) {
@@ -39,24 +58,49 @@ export const createNotification = async ({ user, title, message, type, metadata,
 
 /**
  * Specifically handles booking confirmation notifications
- * Ensures they are only created once per booking
  */
 export const sendNewBookingNotification = async (booking, io) => {
     try {
         const dateStr = new Date(booking.date).toLocaleDateString();
+        const customerName = booking.customer?.username || 'Customer';
+        const barberName = booking.barber?.username || 'Barber';
+        const serviceName = booking.service?.name || 'Service';
 
-        // Notify Barber
+        // 1. Notify Barber
         await createNotification({
-            user: booking.barber._id || booking.barber,
-            title: 'New Booking Request! 📅',
-            message: `You have a new booking from ${booking.customer.username}.\n\n✂️ Service: ${booking.service.name}\n📅 Date: ${dateStr}\n⏰ Time: ${booking.time_slot}`,
-            type: 'booking_status',
+            recipientId: booking.barber._id || booking.barber,
+            barberId: booking.barber._id || booking.barber,
+            customerId: booking.customer._id || booking.customer,
+            message: `New Booking: ${customerName} booked ${serviceName} on ${dateStr} at ${booking.time_slot}.`,
+            type: 'booked',
             metadata: {
                 bookingId: booking._id.toString(),
-                action: 'new_booking'
+                customerName,
+                serviceName,
+                date: dateStr,
+                time: booking.time_slot
             },
             io
         });
+
+        // 2. Notify Customer
+        await createNotification({
+            recipientId: booking.customer._id || booking.customer,
+            barberId: booking.barber._id || booking.barber,
+            customerId: booking.customer._id || booking.customer,
+            message: `Booking Placed: You booked ${serviceName} with ${barberName} for ${dateStr} at ${booking.time_slot}. Waiting for barber to confirm.`,
+            type: 'booked',
+            metadata: {
+                bookingId: booking._id.toString(),
+                barberName,
+                serviceName,
+                date: dateStr,
+                time: booking.time_slot
+            },
+            io
+        });
+        // 3. Send Email
+        await sendBookingEmail(booking);
     } catch (error) {
         console.error('Error sending new booking notification:', error);
     }
@@ -64,95 +108,125 @@ export const sendNewBookingNotification = async (booking, io) => {
 
 export const sendBookingConfirmationNotifications = async (booking, io) => {
     try {
-        // Check if confirmation notification already exists for this booking
-        const existing = await Notification.findOne({
-            'metadata.bookingId': booking._id.toString(),
-            'metadata.action': 'confirmation'
-        });
-
-        if (existing) {
-            console.log(`Notification already exists for booking ${booking._id}`);
-            return;
-        }
-
         const dateStr = new Date(booking.date).toLocaleDateString();
-        const addressInfo = booking.service_type === 'home' ? `\n📍 Address: ${booking.customer_address}` : '';
-        const modeEmoji = booking.service_type === 'home' ? '🏠' : '💈';
-        const modeText = booking.service_type === 'home' ? 'HOME VISIT' : 'AT SALON';
+        const customerName = booking.customer?.username || 'Customer';
+        const barberName = booking.barber?.username || 'Barber';
+        const serviceName = booking.service?.name || 'Service';
 
-        // 1. Notify Customer
+        // 1. Notify Barber
         await createNotification({
-            user: booking.customer._id || booking.customer,
-            title: 'Booking Confirmed! ✅',
-            message: `Your appointment for ${booking.service.name} is confirmed.\n\n📅 Date: ${dateStr}\n⏰ Time: ${booking.time_slot}\n${modeEmoji} Type: ${modeText}\n💰 Price: Rs. ${booking.total_price}${addressInfo}`,
-            type: 'booking_status',
+            recipientId: booking.barber._id || booking.barber,
+            barberId: booking.barber._id || booking.barber,
+            customerId: booking.customer._id || booking.customer,
+            message: `Confirmed: ${customerName}'s booking for ${serviceName} on ${dateStr} at ${booking.time_slot} is now confirmed.`,
+            type: 'updated',
             metadata: {
                 bookingId: booking._id.toString(),
+                customerName,
+                serviceName,
+                date: dateStr,
+                time: booking.time_slot,
                 action: 'confirmation'
             },
             io
         });
 
-        // 2. Notify Barber
+        // 2. Notify Customer
         await createNotification({
-            user: booking.barber._id || booking.barber,
-            title: 'New Confirmed Booking! ✂️',
-            message: `You have a confirmed booking with ${booking.customer.username || 'a customer'}.\n\n📅 Date: ${dateStr}\n⏰ Time: ${booking.time_slot}\n${modeEmoji} Type: ${modeText}\n💰 Price: Rs. ${booking.total_price}${addressInfo}`,
-            type: 'booking_status',
+            recipientId: booking.customer._id || booking.customer,
+            barberId: booking.barber._id || booking.barber,
+            customerId: booking.customer._id || booking.customer,
+            message: `Booking Confirmed! ${barberName} has accepted your booking for ${serviceName} on ${dateStr} at ${booking.time_slot}.`,
+            type: 'updated',
             metadata: {
                 bookingId: booking._id.toString(),
+                barberName,
+                serviceName,
+                date: dateStr,
+                time: booking.time_slot,
                 action: 'confirmation'
             },
             io
         });
-
+        // 3. Send Email
+        await sendConfirmationEmail(booking);
     } catch (error) {
         console.error('Error sending booking confirmation notifications:', error);
     }
 };
 
-/**
- * Handles booking cancellation notifications
- * ✅ Enhanced: includes refund information if applicable
- */
 export const sendBookingCancellationNotifications = async (booking, cancelledBy, io) => {
     try {
         const dateStr = new Date(booking.date).toLocaleDateString();
-        const roleText = cancelledBy === 'barber' ? 'the barber' : 'you';
-        const roleTextForBarber = cancelledBy === 'barber' ? 'you' : 'the customer';
+        const customerName = booking.customer?.username || 'Customer';
+        const barberName = booking.barber?.username || 'Barber';
+        const serviceName = booking.service?.name || 'Service';
+        const cancellerPath = cancelledBy === 'barber' ? 'Barber' : 'Customer';
 
-        const refundInfo = booking.refund_amount > 0
-            ? `\n\n💰 Refund: Rs ${booking.refund_amount} (${booking.refund_percentage}%) credited to wallet.`
-            : (booking.payment_status === 'paid' ? '\n\n⚠️ No refund — cancelled after service start time.' : '');
-
-        // 1. Notify Customer
+        // 1. Notify Barber
         await createNotification({
-            user: booking.customer._id || booking.customer,
-            title: 'Booking Cancelled ❌',
-            message: `Your booking for ${booking.service?.name || 'service'} on ${dateStr} at ${booking.time_slot} has been cancelled.${refundInfo}`,
-            type: 'booking_status',
+            recipientId: booking.barber._id || booking.barber,
+            barberId: booking.barber._id || booking.barber,
+            customerId: booking.customer._id || booking.customer,
+            message: `Cancelled: Booking for ${serviceName} on ${dateStr} at ${booking.time_slot} has been cancelled by ${cancellerPath}.`,
+            type: 'cancelled',
             metadata: {
                 bookingId: booking._id.toString(),
-                action: 'cancellation',
-                refund_amount: booking.refund_amount || 0,
+                customerName,
+                serviceName,
+                date: dateStr,
+                time: booking.time_slot
             },
             io
         });
 
-        // 2. Notify Barber
+        // 2. Notify Customer
         await createNotification({
-            user: booking.barber._id || booking.barber,
-            title: 'Booking Cancelled ❌',
-            message: `A booking for ${booking.service?.name || 'service'} on ${dateStr} at ${booking.time_slot} has been cancelled by ${roleTextForBarber}.`,
-            type: 'booking_status',
+            recipientId: booking.customer._id || booking.customer,
+            barberId: booking.barber._id || booking.barber,
+            customerId: booking.customer._id || booking.customer,
+            message: `Booking Cancelled: Your booking with ${barberName} for ${serviceName} on ${dateStr} at ${booking.time_slot} has been cancelled by ${cancellerPath}.`,
+            type: 'cancelled',
             metadata: {
                 bookingId: booking._id.toString(),
-                action: 'cancellation'
+                barberName,
+                serviceName,
+                date: dateStr,
+                time: booking.time_slot
+            },
+            io
+        });
+        // 3. Send Email
+        await sendCancellationEmail(booking, cancelledBy);
+    } catch (error) {
+        console.error('Error sending cancellation notifications:', error);
+    }
+};
+
+/**
+ * Handles booking completion notifications
+ */
+export const sendBookingCompletedNotification = async (booking, io) => {
+    try {
+        const barberName = booking.barber?.username || 'Barber';
+        const serviceName = booking.service?.name || 'Service';
+
+        await createNotification({
+            recipientId: booking.customer._id || booking.customer,
+            barberId: booking.barber._id || booking.barber,
+            customerId: booking.customer._id || booking.customer,
+            message: `Service Completed! Your ${serviceName} with ${barberName} is finished. Please take a moment to rate your experience.`,
+            type: 'updated',
+            metadata: {
+                bookingId: booking._id.toString(),
+                barberName,
+                serviceName,
+                action: 'completion'
             },
             io
         });
     } catch (error) {
-        console.error('Error sending cancellation notifications:', error);
+        console.error('Error sending booking completion notification:', error);
     }
 };
 
@@ -166,10 +240,10 @@ export const sendRefundNotification = async (booking, io) => {
         const refundPct = booking.refund_percentage || 100;
 
         await createNotification({
-            user: booking.customer._id || booking.customer,
-            title: 'Refund Processed 💰',
-            message: `Rs ${refundAmount} (${refundPct}% refund) has been credited to your wallet for booking #${booking._id.toString().substring(0, 8)}.\n\nCheck your wallet for updated balance.`,
-            type: 'wallet_status',
+            barberId: booking.barber._id || booking.barber,
+            customerId: booking.customer._id || booking.customer,
+            message: `Refund: Rs ${refundAmount} (${refundPct}%) has been credited to ${booking.customer?.username || 'the customer'}'s wallet for booking #${booking._id.toString().substring(0, 8)}.`,
+            type: 'updated',
             metadata: {
                 bookingId: booking._id.toString(),
                 action: 'refund',
@@ -180,5 +254,49 @@ export const sendRefundNotification = async (booking, io) => {
         });
     } catch (error) {
         console.error('Error sending refund notification:', error);
+    }
+};
+/**
+ * Admin broadcasting to multiple users
+ */
+export const sendAdminNotification = async ({ title, message, target, io }) => {
+    try {
+        const User = (await import('../models/User.js')).default;
+        
+        let filter = { is_active: true };
+        if (target === 'customer') filter.user_type = 'customer';
+        if (target === 'barber') filter.user_type = 'barber';
+
+        const users = await User.find(filter).select('_id');
+
+        const notifications = users.map(user => ({
+            recipientId: user._id,
+            message: `${title}: ${message}`,
+            type: 'admin',
+            metadata: { title, originalMessage: message }
+        }));
+
+        // Batch insert for performance
+        await Notification.insertMany(notifications);
+
+        // Emit via socket
+        if (io) {
+            if (target === 'all') {
+                io.emit('notification_received', { title, message, type: 'admin' });
+            } else if (target === 'customer') {
+                // We don't have a 'customers' room, so we can either emit to all and filter on client,
+                // or emit to each user. For simplicity, since it's an admin push, we'll emit to a role room if it exists,
+                // or just broadcast with a flag.
+                // Let's use a dedicated role room for future scalability.
+                io.to('customers').emit('notification_received', { title, message, type: 'admin' });
+            } else if (target === 'barber') {
+                io.to('barbers').emit('notification_received', { title, message, type: 'admin' });
+            }
+        }
+
+        return users.length;
+    } catch (error) {
+        console.error('Error sending admin notification:', error);
+        throw error;
     }
 };

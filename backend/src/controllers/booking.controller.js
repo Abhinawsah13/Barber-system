@@ -12,8 +12,10 @@ import {
     sendBookingCancellationNotifications,
     sendRefundNotification,
     sendNewBookingNotification,
+    sendBookingCompletedNotification,
     createNotification,
 } from '../services/notification.service.js';
+import SystemSettings from '../models/SystemSettings.js';
 
 
 // ─── Conflict detection ───────────────────────────────────────────────────────
@@ -224,8 +226,8 @@ export const createBooking = async (req, res) => {
             date: new Date(req.body.date),
             time_slot: req.body.time_slot,
         })
-            .populate('customer', 'username phone')
-            .populate('barber', 'username profile_image address')
+            .populate('customer', 'username phone email')
+            .populate('barber', 'username profile_image address email')
             .populate('service', 'name price duration_minutes')
             .sort({ createdAt: -1 });
 
@@ -254,18 +256,6 @@ export const getAvailableSlotsForBooking = async (req, res) => {
         if (!service) return res.status(404).json({ success: false, message: 'Service not found' });
 
         let slots = await getAvailableSlots(barberId, service.duration_minutes, date, serviceType);
-
-        // ✅ FIX 1: Filter out past time slots for today
-        const today = new Date().toISOString().split('T')[0];
-        if (date === today) {
-            const now = new Date();
-            slots = slots.filter(slot => {
-                const [hours, minutes] = slot.time.split(':').map(Number);
-                const slotDateTime = new Date();
-                slotDateTime.setHours(hours, minutes, 0, 0);
-                return slotDateTime > now;
-            });
-        }
 
         return res.json({
             success: true,
@@ -381,6 +371,13 @@ export const updateBookingStatus = async (req, res) => {
             let refundPercentage = 0;
             let refundAmount = 0;
 
+            const settings = await SystemSettings.findOne().lean() || {
+                refund_2h_more: 100,
+                refund_1h_to_2h: 70,
+                refund_less_than_1h: 50,
+                refund_barber_on_way: 30
+            };
+
             if (status === 'cancelled_by_barber') {
                 // Barber cancelled → always FULL refund (not customer's fault)
                 refundPercentage = 100;
@@ -388,17 +385,17 @@ export const updateBookingStatus = async (req, res) => {
             } else {
                 // Customer cancelled via status update → 4-tier logic
                 if (booking.barber_on_the_way) {
-                    refundPercentage = 30;
-                    refundAmount = Math.round(serviceCharge * 0.30);
+                    refundPercentage = settings.refund_barber_on_way || 30;
+                    refundAmount = Math.round(serviceCharge * (refundPercentage / 100));
                 } else if (hoursUntilService >= 2) {
-                    refundPercentage = 100;
-                    refundAmount = booking.total_price;
+                    refundPercentage = settings.refund_2h_more || 100;
+                    refundAmount = Math.round(booking.total_price * (refundPercentage / 100));
                 } else if (hoursUntilService >= 1) {
-                    refundPercentage = 70;
-                    refundAmount = Math.round(serviceCharge * 0.70) + travelCharge;
+                    refundPercentage = settings.refund_1h_to_2h || 70;
+                    refundAmount = Math.round(serviceCharge * (refundPercentage / 100)) + travelCharge;
                 } else if (hoursUntilService > 0) {
-                    refundPercentage = 50;
-                    refundAmount = Math.round(serviceCharge * 0.50);
+                    refundPercentage = settings.refund_less_than_1h || 50;
+                    refundAmount = Math.round(serviceCharge * (refundPercentage / 100));
                 } else {
                     refundPercentage = 0;
                     refundAmount = 0;
@@ -438,23 +435,36 @@ export const updateBookingStatus = async (req, res) => {
 
 
         // Platform commission on completion
-        if (status === 'completed' && oldStatus !== 'completed' && booking.payment_status === 'paid') {
+        if (status === 'completed' && oldStatus !== 'completed') {
+            // Automatically mark as paid if completed (assumes cash/completed service)
+            if (booking.payment_status !== 'paid' && booking.payment_status !== 'refunded') {
+                booking.payment_status = 'paid';
+            }
+
             const barberProfile = await BarberProfile.findOne({ user: booking.barber });
             if (barberProfile) {
-                const commissionRate = barberProfile.subscription_plan === 'premium' ? 0.05 : 0.10;
-                const commissionAmount = booking.total_price * commissionRate;
-                const barberNetEarnings = booking.total_price - commissionAmount;
+                const settings = await mongoose.model('SystemSettings').findOne() || { basic_commission: 10, premium_commission: 5 };
+                const bas_rate = (settings.basic_commission || 10) / 100;
+                const prem_rate = (settings.premium_commission !== undefined ? settings.premium_commission : 5) / 100;
+                
+                const commissionRate = barberProfile.subscription_plan === 'premium' ? prem_rate : bas_rate;
+                const commissionAmount = (booking.total_price || 0) * commissionRate;
+                const barberNetEarnings = (booking.total_price || 0) - commissionAmount;
 
                 barberProfile.earnings.balance += barberNetEarnings;
                 barberProfile.earnings.total_earned += barberNetEarnings;
                 await barberProfile.save();
 
-                await PlatformEarning.create({
-                    booking: booking._id,
-                    amount: commissionAmount,
-                    commission_rate: commissionRate * 100,
-                    barber: booking.barber
-                });
+                // Check if commission already exists for this booking to prevent duplicates
+                const existingEarning = await PlatformEarning.findOne({ booking: booking._id });
+                if (!existingEarning) {
+                    await PlatformEarning.create({
+                        booking: booking._id,
+                        amount: commissionAmount,
+                        commission_rate: commissionRate * 100,
+                        barber: booking.barber
+                    });
+                }
             }
         }
 
@@ -462,8 +472,8 @@ export const updateBookingStatus = async (req, res) => {
 
         const io = req.app.get('io');
         const populatedBooking = await Booking.findById(booking._id)
-            .populate('customer', 'username phone')
-            .populate('barber', 'username profile_image address')
+            .populate('customer', 'username phone email')
+            .populate('barber', 'username profile_image address email')
             .populate('service', 'name price');
 
         if (populatedBooking) {
@@ -473,7 +483,8 @@ export const updateBookingStatus = async (req, res) => {
 
             // ✅ FIX 4: Emit completed event — triggers Rate Your Barber on customer side
             if (status === 'completed' && oldStatus !== 'completed') {
-                io.to(`user-${booking.customer}`).emit('booking-completed', populatedBooking);
+                await sendBookingCompletedNotification(populatedBooking, io);
+                io.to(`user-${booking.customer._id || booking.customer}`).emit('booking-completed', populatedBooking);
             }
 
             if ((status === 'cancelled_by_customer' || status === 'cancelled_by_barber') &&
@@ -538,30 +549,38 @@ export const cancelBooking = async (req, res) => {
         let refundMessage = '';
 
         if (booking.payment_status === 'paid') {
+            const settings = await SystemSettings.findOne().lean() || {
+                refund_2h_more: 100,
+                refund_1h_to_2h: 70,
+                refund_less_than_1h: 50,
+                refund_barber_on_way: 30
+            };
+
             if (booking.barber_on_the_way === true) {
-                // Barber on the way → 30% of service charge; travel NOT refunded
-                refundPercentage = 30;
-                serviceRefund = Math.round(serviceCharge * 0.30);
+                // Barber on the way → % of service charge; travel NOT refunded
+                refundPercentage = settings.refund_barber_on_way || 30;
+                serviceRefund = Math.round(serviceCharge * (refundPercentage / 100));
                 travelRefund = 0;
-                refundMessage = `30% refund (Rs ${serviceRefund}) — barber is already on the way. Travel charge (Rs ${travelCharge}) is non-refundable.`;
+                refundMessage = `${refundPercentage}% refund (Rs ${serviceRefund}) — barber is already on the way. Travel charge (Rs ${travelCharge}) is non-refundable.`;
             } else if (hoursUntilService >= 2) {
-                // Cancelled ≥ 2 hours early → 100% refund (service + travel)
-                refundPercentage = 100;
-                serviceRefund = serviceCharge;
-                travelRefund = travelCharge;
-                refundMessage = `Full refund (Rs ${serviceCharge + travelCharge}) — cancelled 2+ hours before service.`;
+                // Cancelled ≥ 2 hours early → % of full refund (service + travel)
+                refundPercentage = settings.refund_2h_more || 100;
+                const totalRefund = Math.round((serviceCharge + travelCharge) * (refundPercentage / 100));
+                serviceRefund = serviceCharge * (refundPercentage / 100);
+                travelRefund = travelCharge * (refundPercentage / 100);
+                refundMessage = `${refundPercentage}% refund (Rs ${totalRefund}) — cancelled 2+ hours before service.`;
             } else if (hoursUntilService >= 1) {
-                // Cancelled 1–2 hours early → 70% of service charge; travel refunded
-                refundPercentage = 70;
-                serviceRefund = Math.round(serviceCharge * 0.70);
+                // Cancelled 1–2 hours early → % of service charge; travel refunded
+                refundPercentage = settings.refund_1h_to_2h || 70;
+                serviceRefund = Math.round(serviceCharge * (refundPercentage / 100));
                 travelRefund = travelCharge;
-                refundMessage = `70% refund (Rs ${serviceRefund + travelCharge}) — cancelled 1–2 hours before service.`;
+                refundMessage = `${refundPercentage}% refund (Rs ${serviceRefund + travelRefund}) — cancelled 1–2 hours before service.`;
             } else if (hoursUntilService > 0) {
-                // Cancelled < 1 hour → 50% of service charge; travel NOT refunded
-                refundPercentage = 50;
-                serviceRefund = Math.round(serviceCharge * 0.50);
+                // Cancelled < 1 hour → % of service charge; travel NOT refunded
+                refundPercentage = settings.refund_less_than_1h || 50;
+                serviceRefund = Math.round(serviceCharge * (refundPercentage / 100));
                 travelRefund = 0;
-                refundMessage = `50% refund (Rs ${serviceRefund}) — cancelled less than 1 hour before service.`;
+                refundMessage = `${refundPercentage}% refund (Rs ${serviceRefund}) — cancelled less than 1 hour before service.`;
             } else {
                 // Service already started → NO refund
                 refundPercentage = 0;
@@ -614,8 +633,8 @@ export const cancelBooking = async (req, res) => {
 
         // ─── Notifications + Real-time Socket ────────────────────────────
         const populatedBooking = await Booking.findById(bookingId)
-            .populate('customer', 'username phone')
-            .populate('barber', 'username profile_image address')
+            .populate('customer', 'username phone email')
+            .populate('barber', 'username profile_image address email')
             .populate('service', 'name price');
 
         const io = req.app.get('io');
@@ -697,8 +716,9 @@ export const markBarberOnTheWay = async (req, res) => {
         const io = req.app.get('io');
 
         await createNotification({
-            user: booking.customer,
-            title: 'Barber On The Way! 🛵',
+            recipientId: booking.customer,
+            barberId: barberId,
+            customerId: booking.customer,
             message: `Your barber is on the way for ${booking.service?.name || 'your service'}. Please be ready!`,
             type: 'booking_status',
             metadata: { bookingId: booking._id.toString(), action: 'barber_on_the_way' },
@@ -749,3 +769,63 @@ export const payBooking = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Something went wrong' });
     }
 };
+
+// ─── PUT /bookings/:id (Update Details) ──────────────────────────────────────
+export const updateBooking = async (req, res) => {
+    try {
+        const { date, time_slot } = req.body;
+        const bookingId = req.params.id;
+        const userId = req.user._id;
+
+        const booking = await Booking.findById(bookingId).populate('service');
+        if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+
+        if (booking.customer.toString() !== userId.toString()) {
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+
+        if (booking.status !== 'pending' && booking.status !== 'confirmed') {
+            return res.status(400).json({ success: false, message: 'Cannot update details for this booking status' });
+        }
+
+        // Validate new slot
+        if (date && time_slot) {
+            const dateStr = new Date(date).toISOString().split('T')[0];
+            const conflict = await hasConflict(booking.barber, dateStr, time_slot, booking.service.duration_minutes, null, bookingId);
+            if (conflict) {
+                return res.status(409).json({ success: false, message: 'The new time slot is already booked' });
+            }
+            booking.date = new Date(date);
+            booking.time_slot = time_slot;
+        }
+
+        await booking.save();
+
+        const io = req.app.get('io');
+        const populated = await Booking.findById(bookingId)
+            .populate('customer', 'username phone email')
+            .populate('barber', 'username')
+            .populate('service', 'name');
+
+        if (populated && io) {
+            // Trigger "updated" notification
+            await createNotification({
+                barberId: populated.barber._id,
+                customerId: populated.customer._id,
+                message: `Updated: ${populated.customer.username} updated the booking for ${populated.service.name} to ${new Date(populated.date).toLocaleDateString()} at ${populated.time_slot}.`,
+                type: 'updated',
+                metadata: {
+                    bookingId: populated._id.toString(),
+                    action: 'updated_by_customer'
+                },
+                io
+            });
+        }
+
+        return res.json({ success: true, message: 'Booking updated successfully', data: populated });
+    } catch (error) {
+        console.error('[updateBooking] ERROR:', error);
+        return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+};
+

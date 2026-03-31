@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
-import { getNotifications, markNotificationAsRead } from '../../services/api';
+import { useLanguage } from '../../context/LanguageProvider';
+import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '../../services/api';
+import { getUserData } from '../../services/TokenManager';
 import { formatDateTime } from '../../utils/dateUtils';
 
 export default function NotificationsScreen({ navigation }) {
     const { theme } = useTheme();
+    const { t } = useLanguage();
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -17,8 +20,14 @@ export default function NotificationsScreen({ navigation }) {
 
     const loadData = async () => {
         try {
-            const data = await getNotifications();
+            const userData = await getUserData();
+            const barberId = userData?._id;
+            const data = await getNotifications(barberId);
             setNotifications(data);
+
+            if (userData?.user_type === 'barber' && barberId) {
+                await markAllNotificationsAsRead(barberId);
+            }
         } catch (error) {
             console.error(error);
         } finally {
@@ -28,17 +37,13 @@ export default function NotificationsScreen({ navigation }) {
     };
 
     const handleNotificationClick = async (item) => {
-        // Mark as read in background
-        if (!item.is_read) {
+        if (!item.isRead) {
             markNotificationAsRead(item._id);
-            // Optimistic update
-            setNotifications(prev => prev.map(n => n._id === item._id ? { ...n, is_read: true } : n));
+            setNotifications(prev => prev.map(n => n._id === item._id ? { ...n, isRead: true } : n));
         }
 
         const bookingId = item.metadata?.bookingId;
         if (bookingId) {
-            // Both customers and barbers navigate to MyBookings with the specific bookingId.
-            // MyBookings will auto-scroll to and highlight that booking.
             navigation.navigate('MyBookings', { bookingId });
         }
     };
@@ -50,14 +55,16 @@ export default function NotificationsScreen({ navigation }) {
             style={[
                 styles.card,
                 { backgroundColor: theme.card, shadowColor: theme.shadow },
-                !item.is_read && { borderLeftWidth: 4, borderLeftColor: theme.primary, backgroundColor: theme.primary + '10' }
+                !item.isRead && { borderLeftWidth: 4, borderLeftColor: theme.primary, backgroundColor: theme.primary + '10' }
             ]}
         >
-            <View style={[styles.iconBox, { backgroundColor: item.is_read ? theme.inputBg : theme.primary + '20' }]}>
+            <View style={[styles.iconBox, { backgroundColor: item.isRead ? theme.inputBg : theme.primary + '20' }]}>
                 <Text style={{ fontSize: 20 }}>{item.type === 'wallet_status' ? '💰' : '🔔'}</Text>
             </View>
             <View style={styles.textContainer}>
-                <Text style={[styles.title, { color: theme.text, fontWeight: item.is_read ? '500' : 'bold' }]}>{item.title}</Text>
+                <Text style={[styles.title, { color: theme.text, fontWeight: item.isRead ? '500' : 'bold' }]}>
+                    {item.type ? item.type.toUpperCase() : 'NOTIFICATION'}
+                </Text>
                 <Text style={[styles.message, { color: theme.textLight }]} numberOfLines={2}>{item.message}</Text>
                 <Text style={[styles.time, { color: theme.textMuted }]}>{item.createdAt ? formatDateTime(item.createdAt) : ''}</Text>
             </View>
@@ -70,7 +77,7 @@ export default function NotificationsScreen({ navigation }) {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <Text style={[styles.backText, { color: theme.text }]}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Notifications</Text>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>{t('notifications')}</Text>
             </View>
 
             {loading ? (
@@ -82,9 +89,9 @@ export default function NotificationsScreen({ navigation }) {
                     <View style={[styles.emptyIconBox, { backgroundColor: theme.inputBg }]}>
                         <Text style={{ fontSize: 40 }}>📭</Text>
                     </View>
-                    <Text style={[styles.headerTitle, { color: theme.text, marginTop: 10 }]}>No notifications yet</Text>
+                    <Text style={[styles.headerTitle, { color: theme.text, marginTop: 10 }]}>{t('no_notifications')}</Text>
                     <Text style={[styles.emptyText, { color: theme.textMuted, textAlign: 'center', paddingHorizontal: 40, marginTop: 5 }]}>
-                        When you book a service or receive an update, it will appear here.
+                        {t('no_notifications_desc')}
                     </Text>
                 </View>
             ) : (

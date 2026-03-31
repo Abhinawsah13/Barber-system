@@ -1,24 +1,30 @@
 import mongoose from 'mongoose';
 
 const notificationSchema = new mongoose.Schema({
-    user: {
+    recipientId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
     },
-    title: {
-        type: String,
-        required: true
+    barberId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: false
+    },
+    customerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: false
     },
     message: {
         type: String,
         required: true
     },
     type: {
-        type: String, // 'booking_success', 'booking_status', 'promo', etc.
-        default: 'info'
+        type: String, // 'booked', 'cancelled', 'updated', etc.
+        required: true
     },
-    is_read: {
+    isRead: {
         type: Boolean,
         default: false
     },

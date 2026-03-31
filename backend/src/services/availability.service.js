@@ -41,57 +41,52 @@ function buildISODateTime(dateStr, timeStr) {
 function generateAvailableSlots(startMinutes, endMinutes, slotDuration, breakRanges, bookedRanges, dateStr) {
     const slots = [];
 
-    // Get the current time in minutes so we can skip past slots if today is selected
+    // Get current time in local components to match dateStr
     const now = new Date();
-    const currentTimeInMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-    const todayDateStr = now.toISOString().split('T')[0];
+    const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const dayDigits = String(now.getDate()).padStart(2, '0');
+    const todayDateStr = `${year}-${month}-${dayDigits}`;
+    
     const isRequestedDateToday = dateStr === todayDateStr;
 
     let currentSlotStart = startMinutes;
 
-    // Walk through the day slot by slot until we run out of working time
     while (currentSlotStart + slotDuration <= endMinutes) {
         const currentSlotEnd = currentSlotStart + slotDuration;
 
-        // Skip slots that are already in the past (only matters if the date is today)
-        if (isRequestedDateToday && currentSlotStart < currentTimeInMinutes) {
-            currentSlotStart += slotDuration;
-            continue;
-        }
+        // Condition 1: Is it in the past (today only)?
+        const isPast = isRequestedDateToday && currentSlotStart < currentTimeInMinutes;
 
-        // Check if this slot falls inside any break period
-        let slotOverlapsBreak = false;
-        for (let i = 0; i < breakRanges.length; i++) {
-            const breakStart = breakRanges[i].start;
-            const breakEnd = breakRanges[i].end;
-            if (currentSlotStart < breakEnd && currentSlotEnd > breakStart) {
-                slotOverlapsBreak = true;
+        // Condition 2: Overlaps break?
+        let isBreak = false;
+        for (const b of breakRanges) {
+            if (currentSlotStart < b.end && currentSlotEnd > b.start) {
+                isBreak = true;
                 break;
             }
         }
 
-        // Check if this slot conflicts with an already booked appointment
-        let slotIsBooked = false;
-        for (let i = 0; i < bookedRanges.length; i++) {
-            const bookingStart = bookedRanges[i].start;
-            const bookingEnd = bookedRanges[i].end;
-            if (currentSlotStart < bookingEnd && currentSlotEnd > bookingStart) {
-                slotIsBooked = true;
+        // Condition 3: Is it booked?
+        let isBooked = false;
+        for (const b of bookedRanges) {
+            if (currentSlotStart < b.end && currentSlotEnd > b.start) {
+                isBooked = true;
                 break;
             }
         }
 
-        // Only add the slot if it's free from breaks and existing bookings
-        if (!slotOverlapsBreak && !slotIsBooked) {
-            const timeStr = minutesToTimeString(currentSlotStart);
-            slots.push({
-                time: timeStr,
-                iso: buildISODateTime(dateStr, timeStr),
-                available: true,
-            });
-        }
+        const timeStr = minutesToTimeString(currentSlotStart);
+        
+        // Push every slot that fits in working hours
+        slots.push({
+            time: timeStr,
+            iso: buildISODateTime(dateStr, timeStr),
+            available: !isPast && !isBreak && !isBooked,
+            reason: isPast ? 'past' : (isBooked ? 'booked' : (isBreak ? 'break' : null))
+        });
 
-        // Move to the next potential slot
         currentSlotStart += slotDuration;
     }
 
