@@ -136,3 +136,7 @@ export const isBarber = (req, res, next) => {
 export const isCustomer = (req, res, next) => {
     requireRole('customer')(req, res, next);
 };
+
+// Aliases for compatibility
+export const protect = authenticateToken;
+export const restrictTo = requireRole;

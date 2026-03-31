@@ -9,6 +9,7 @@ import {
     cancelBooking,
     payBooking,
     markBarberOnTheWay,
+    updateBooking,
 } from '../controllers/booking.controller.js';
 
 const router = express.Router();
@@ -24,6 +25,9 @@ router.get('/my-bookings', authenticateToken, getMyBookings);
 
 // General status update (used by barbers to confirm/complete/cancel bookings)
 router.put('/:id/status', authenticateToken, updateBookingStatus);
+
+// Customer updates booking details (time/date)
+router.put('/:id', authenticateToken, requireRole('customer'), updateBooking);
 
 // Customer cancels a specific booking (optional body: { cancellationReason })
 router.put('/:id/cancel', authenticateToken, requireRole('customer'), cancelBooking);

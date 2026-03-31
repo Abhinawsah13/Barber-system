@@ -13,6 +13,7 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import walletRoutes from './routes/walletRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
+import subscriptionRoutes from './routes/subscriptionRoutes.js';
 
 import serviceRoutesV2 from './routes/service.routes.js';
 import barberRoutesV2 from './routes/barber.routes.js';
@@ -57,6 +58,7 @@ app.use('/api/v2/bookings', bookingRoutesV2);
 app.use('/api/v2/reviews', reviewRoutes);
 app.use('/api/v2/payments', paymentRoutes);
 app.use('/api/v2/ai', aiRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
 // Basic route
 app.get('/', (req, res) => {
@@ -121,9 +123,21 @@ io.on('connection', (socket) => {
         console.log(`Barber ${barberId} joined room`);
     });
 
-    socket.on('join-user-room', (userId) => {
+    socket.on('join-user-room', (data) => {
+        const userId = typeof data === 'object' ? data.userId : data;
+        const role = typeof data === 'object' ? data.role : null;
+        
         socket.join(`user-${userId}`);
-        console.log(`User ${userId} joined room`);
+        console.log(`User ${userId} joined personal room`);
+        
+        // Join role-specific rooms for broadcasting
+        if (role === 'customer') {
+            socket.join('customers');
+            console.log(`User ${userId} joined customers room`);
+        } else if (role === 'barber') {
+            socket.join('barbers');
+            console.log(`User ${userId} joined barbers room`);
+        }
     });
 
     // ── ✅ NEW: Customer Live Location → forward to Barber ────

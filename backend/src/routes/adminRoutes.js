@@ -2,7 +2,17 @@
 import express from 'express';
 import User from '../models/User.js';
 import Complaint from '../models/Complaint.js';
+import mongoose from 'mongoose';
 import { requireAdmin } from '../middleware/adminMiddleware.js';
+
+import {
+    getCommissionOverview,
+    getCommissionTransactions,
+    getMonthlyCommissionReport,
+    getBarberCommissionDetails,
+    getRevenueProjections
+} from '../controllers/admin.commission.controller.js';
+import { sendAdminNotification } from '../services/notification.service.js';
 
 const router = express.Router();
 
@@ -130,6 +140,50 @@ router.get('/users/:userId', requireAdmin, async (req, res) => {
 });
 
 // ─────────────────────────────────────────
+// PERMANENTLY DELETE USER (barber or customer)
+// ─────────────────────────────────────────
+router.delete('/users/:userId', requireAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        if (user.user_type === 'admin') {
+            return res.status(403).json({ success: false, message: 'Cannot delete admin' });
+        }
+
+        // 1. Cleanup Subscription records
+        await mongoose.model('Subscription').deleteMany({ user: userId });
+
+        // 2. Cleanup Barber Profile
+        if (user.user_type === 'barber') {
+            await mongoose.model('BarberProfile').deleteOne({ user: userId });
+        }
+
+        // 3. Cleanup Notifications
+        await mongoose.model('Notification').deleteMany({ recipientId: userId });
+
+        // 4. Update Bookings (don't delete, but set reference to null or mark as deleted)
+        // Note: For accounting we keep bookings, but the populate will now fail for this ID.
+
+        // 5. Final Step: Delete User
+        await User.deleteOne({ _id: userId });
+
+        res.json({ 
+            success: true, 
+            message: `User ${user.username} and all associated profile data have been permanently removed.` 
+        });
+
+    } catch (error) {
+        console.error('[AdminDeleteUser]', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ─────────────────────────────────────────
 // COMPLAINTS — GET ALL
 // ─────────────────────────────────────────
 router.get('/complaints', requireAdmin, async (req, res) => {
@@ -201,30 +255,41 @@ router.post('/complaints', async (req, res) => {
 router.post('/notifications/send', requireAdmin, async (req, res) => {
     try {
         const { title, message, target } = req.body;
-        // target: 'all' | 'customer' | 'barber'
+        const io = req.app.get('io');
 
         if (!title || !message || !target) {
             return res.status(400).json({ success: false, message: 'Title, message and target are required' });
         }
 
-        let filter = { is_active: true };
-        if (target !== 'all') {
-            filter.user_type = target;
-        }
+        const count = await sendAdminNotification({ title, message, target, io });
 
-        const users = await User.find(filter).select('_id username');
-
-        // TODO: Connect to your push notification service here
-        // For now, returns list of targeted users
         res.json({
             success: true,
-            message: `Notification sent to ${users.length} users.`,
-            data: { targetCount: users.length, target }
+            message: `Notification sent to ${count} users.`,
+            data: { targetCount: count, target }
         });
 
     } catch (error) {
+        console.error('[AdminNotification]', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
+
+import { getSettings, updateSettings } from '../controllers/settings.controller.js';
+
+// ─────────────────────────────────────────
+// SYSTEM SETTINGS (Commission Rates)
+// ─────────────────────────────────────────
+router.get('/settings', requireAdmin, getSettings);
+router.put('/settings', requireAdmin, updateSettings);
+
+// ─────────────────────────────────────────
+// COMMISSION & REVENUE
+// ─────────────────────────────────────────
+router.get('/commission/overview', requireAdmin, getCommissionOverview);
+router.get('/commission/transactions', requireAdmin, getCommissionTransactions);
+router.get('/commission/monthly-report', requireAdmin, getMonthlyCommissionReport);
+router.get('/commission/barber/:barberId', requireAdmin, getBarberCommissionDetails);
+router.get('/commission/projections', requireAdmin, getRevenueProjections);
 
 export default router;
