@@ -1,38 +1,42 @@
-// screens/barber/BarberHomeScreen.js
-// ✅ Added: receive customer live location via socket
-// ✅ Added: navigate to customer with live coords
-
 import React, { useState, useEffect, useRef } from "react";
 import {
     View, Text, StyleSheet, TouchableOpacity,
-    ScrollView, RefreshControl, Linking, Alert
+    ScrollView, RefreshControl, Linking, Alert, Image
 } from "react-native";
 import * as Location from 'expo-location';
 import io from 'socket.io-client';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
+import { useLanguage } from "../../context/LanguageProvider";
 import { SOCKET_BASE_URL } from '../../config/server';
-import { getMyBookings, toggleBarberOnlineStatus, updateBookingStatus, getProfile, getBarberById, markBarberOnTheWay } from "../../services/api";
+import { getMyBookings, toggleBarberOnlineStatus, updateBookingStatus, getProfile, getBarberById, markBarberOnTheWay, getUnreadNotificationCount } from "../../services/api";
 import { getUserData } from "../../services/TokenManager";
+import { Ionicons } from '@expo/vector-icons';
 
 export default function BarberHomeScreen({ navigation, route }) {
     const { theme } = useTheme();
+    const { t } = useLanguage();
     const [refreshing, setRefreshing] = useState(false);
+    // ... rest of state ...
     const [stats, setStats] = useState({ todayBookings: 0, totalEarnings: "Rs 0" });
     const [schedule, setSchedule] = useState([]);
     const [isOnline, setIsOnline] = useState(false);
     const [userRole, setUserRole] = useState('barber');
     const [barberId, setBarberId] = useState(null);
+    const [subscriptionPlan, setSubscriptionPlan] = useState('basic');
 
     const [liveLocations, setLiveLocations] = useState({});
     const [profileMissing, setProfileMissing] = useState([]);
+    const [userData, setUserData] = useState(null);
+    const [unreadCount, setUnreadCount] = useState(0);
     const socketRef = useRef(null);
 
     const loadData = async () => {
         try {
-            const userData = await getUserData();
-            setUserRole(userData?.user_type || 'barber');
-            setBarberId(userData?._id);
+            const ud = await getUserData();
+            setUserData(ud);
+            setUserRole(ud?.user_type || 'barber');
+            setBarberId(ud?._id);
 
             const bookings = await getMyBookings();
             const today = new Date().toISOString().split('T')[0];
@@ -57,17 +61,16 @@ export default function BarberHomeScreen({ navigation, route }) {
 
             setSchedule(upcoming);
 
-            // ── Check barber profile completeness ─────────────────────────
             try {
                 const userProfile = await getProfile();
                 const missing = [];
                 if (!userProfile?.phone) missing.push('phone number');
                 if (!userProfile?.profile_image) missing.push('profile photo');
 
-                // Fetch barber-specific profile for bio, address, services
                 if (userProfile?._id) {
                     const bp = await getBarberById(userProfile._id);
                     if (bp) {
+                        setSubscriptionPlan(bp.subscription_plan || 'basic');
                         if (!bp.bio || bp.bio === 'Welcome to my barber profile!') missing.push('bio');
                         if (!bp.location?.address) missing.push('salon address');
                         if (!bp.services || bp.services.length === 0) missing.push('at least 1 service');
@@ -75,7 +78,12 @@ export default function BarberHomeScreen({ navigation, route }) {
                 }
 
                 setProfileMissing(missing);
-            } catch (_) {}
+            } catch (_) {
+                console.log("Profile completeness check failed (soft failure)");
+            }
+
+            const count = await getUnreadNotificationCount();
+            setUnreadCount(count);
         } catch (error) {
             console.error("Failed to load dashboard data", error);
         }
@@ -98,15 +106,23 @@ export default function BarberHomeScreen({ navigation, route }) {
             await loadData();
             await toggleOnlineStatus(true);
 
-            // Connect socket
             socketRef.current = io(SOCKET_BASE_URL);
 
-            // Join barber room for live location updates
             if (userData?._id) {
-                socketRef.current.emit('join-barber-room', userData._id);
+                socketRef.current.emit('join-user-room', { userId: userData._id, role: 'barber' });
             }
 
-            // ✅ NEW: Receive customer live location
+            socketRef.current.on('notification_received', (notification) => {
+                if (notification?.message) {
+                    Alert.alert('🔔 Management Alert', notification.message);
+                }
+                loadData();
+            });
+
+            socketRef.current.on('unread_count_update', ({ count }) => {
+                setUnreadCount(count);
+            });
+
             socketRef.current.on('customer-location-update', (data) => {
                 const { bookingId, lat, lng } = data;
                 setLiveLocations(prev => ({
@@ -115,7 +131,6 @@ export default function BarberHomeScreen({ navigation, route }) {
                 }));
             });
 
-            // ✅ NEW: Customer stopped sharing
             socketRef.current.on('customer-location-stopped', (data) => {
                 const { bookingId } = data;
                 setLiveLocations(prev => ({
@@ -124,7 +139,6 @@ export default function BarberHomeScreen({ navigation, route }) {
                 }));
             });
 
-            // New booking notification
             socketRef.current.on('new-booking', (booking) => {
                 Alert.alert(
                     '🔔 New Booking!',
@@ -137,22 +151,26 @@ export default function BarberHomeScreen({ navigation, route }) {
                 loadData();
             });
 
-            // ✅ Booking cancelled by customer — remove from schedule in real-time
             socketRef.current.on('booking-cancelled-by-customer', (data) => {
                 Alert.alert(
                     '❌ Booking Cancelled',
                     `${data.customerName || 'Customer'} cancelled their ${data.serviceName || 'service'} booking (${data.timeSlot || ''}).`,
                     [{ text: 'OK' }]
                 );
-                // Remove from live schedule list
                 setSchedule(prev => prev.filter(b => b._id?.toString() !== data.bookingId?.toString()));
             });
         };
 
         init();
 
+        const unsubscribeFocus = navigation.addListener('focus', () => {
+            loadData();
+        });
+
         return () => {
+            unsubscribeFocus();
             if (socketRef.current) {
+                socketRef.current.off('unread_count_update');
                 socketRef.current.off('customer-location-update');
                 socketRef.current.off('customer-location-stopped');
                 socketRef.current.off('new-booking');
@@ -160,7 +178,7 @@ export default function BarberHomeScreen({ navigation, route }) {
                 socketRef.current.disconnect();
             }
         };
-    }, []);
+    }, [navigation]);
 
     const toggleOnlineStatus = async (online) => {
         try {
@@ -182,18 +200,15 @@ export default function BarberHomeScreen({ navigation, route }) {
 
     const formatTime = (timeSlot) => timeSlot || '--:--';
 
-    // ✅ UPDATED: Navigate to customer — uses live location if available
     const handleNavigateToCustomer = (item) => {
         const liveData = liveLocations[item._id];
 
-        // Priority 1: Use live location if customer is sharing
         if (liveData?.isLive && liveData.lat && liveData.lng) {
             const url = `https://www.google.com/maps/dir/?api=1&destination=${liveData.lat},${liveData.lng}`;
             Linking.openURL(url);
             return;
         }
 
-        // Priority 2: Use stored GPS from booking
         const coords = item.customer_location?.coordinates;
         const hasGps = coords && coords.length === 2 &&
             !(coords[0] === 85.3240 && coords[1] === 27.7172);
@@ -205,7 +220,6 @@ export default function BarberHomeScreen({ navigation, route }) {
             return;
         }
 
-        // Priority 3: Use text address
         if (item.customer_address) {
             const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.customer_address)}`;
             Linking.openURL(url);
@@ -213,6 +227,10 @@ export default function BarberHomeScreen({ navigation, route }) {
         }
 
         Alert.alert('No Location', 'Customer location is not available for this booking.');
+    };
+
+    const handleSubscriptionPress = () => {
+        navigation.navigate('Subscription');
     };
 
     return (
@@ -226,15 +244,28 @@ export default function BarberHomeScreen({ navigation, route }) {
                 {/* Header */}
                 <View style={styles.header}>
                     <View>
-                        <Text style={[styles.greeting, { color: theme.text }]}>Hello, Barber! ✂️</Text>
-                        <Text style={[styles.subGreeting, { color: theme.textLight }]}>Manage your shop</Text>
+                        <Text style={[styles.greeting, { color: theme.text }]}>{t('home')}! ✂️</Text>
+                        <Text style={[styles.subGreeting, { color: theme.textLight }]}>{t('manage_shop')}</Text>
                     </View>
-                    <TouchableOpacity
-                        onPress={() => navigation.navigate('BarberSettings')}
-                        style={[styles.settingsBtn, { backgroundColor: theme.card }]}
-                    >
-                        <Text style={{ fontSize: 20 }}>⚙️</Text>
-                    </TouchableOpacity>
+                    <View style={styles.headerRight}>
+                        <TouchableOpacity
+                            onPress={() => navigation.navigate('Notifications')}
+                            style={[styles.headerBtn, { backgroundColor: theme.card, marginRight: 10, position: 'relative' }]}
+                        >
+                            <Text style={{ fontSize: 20 }}>🔔</Text>
+                            {unreadCount > 0 && (
+                                <View style={styles.badge}>
+                                    <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                                </View>
+                            )}
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => navigation.navigate('BarberSettings')}
+                            style={[styles.headerBtn, { backgroundColor: theme.card }]}
+                        >
+                            <Text style={{ fontSize: 20 }}>⚙️</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* ── Incomplete Profile Banner ────── */}
@@ -246,7 +277,7 @@ export default function BarberHomeScreen({ navigation, route }) {
                     >
                         <Text style={styles.profileBannerIcon}>⚠️</Text>
                         <View style={{ flex: 1 }}>
-                            <Text style={styles.profileBannerTitle}>Complete Your Profile</Text>
+                            <Text style={styles.profileBannerTitle}>{t('complete_profile')}</Text>
                             <Text style={styles.profileBannerMsg} numberOfLines={2}>
                                 Missing: {profileMissing.join(', ')}. Tap to complete →
                             </Text>
@@ -254,31 +285,57 @@ export default function BarberHomeScreen({ navigation, route }) {
                     </TouchableOpacity>
                 )}
 
+                {/* ── Premium Subscription Banner ────── */}
+                {subscriptionPlan === 'basic' && (
+                    <TouchableOpacity
+                        style={[styles.premiumBanner, { backgroundColor: '#5C2D91' }]}
+                        onPress={handleSubscriptionPress}
+                        activeOpacity={0.9}
+                    >
+                        <View style={styles.premiumIconContainer}>
+                            <Text style={{ fontSize: 24 }}>⭐</Text>
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                            <Text style={styles.premiumTitle}>{t('upgrade_plan')}</Text>
+                            <Text style={styles.premiumMsg}>
+                                Save 50% on commission (10% → 5%) & get unlimited services!
+                            </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#FFF" />
+                    </TouchableOpacity>
+                )}
+
                 {/* Stats */}
                 <View style={styles.statsContainer}>
                     <View style={[styles.statCard, { backgroundColor: '#E3F2FD' }]}>
                         <Text style={[styles.statValue, { color: '#1565C0' }]}>{stats.todayBookings}</Text>
-                        <Text style={[styles.statLabel, { color: '#1565C0' }]}>Today's Clients</Text>
+                        <Text style={[styles.statLabel, { color: '#1565C0' }]}>{t('active_bookings')}</Text>
                     </View>
                     <View style={[styles.statCard, { backgroundColor: '#E8F5E9' }]}>
                         <Text style={[styles.statValue, { color: '#2E7D32' }]}>{stats.totalEarnings}</Text>
-                        <Text style={[styles.statLabel, { color: '#2E7D32' }]}>Revenue</Text>
+                        <Text style={[styles.statLabel, { color: '#2E7D32' }]}>{t('total_earnings')}</Text>
                     </View>
                 </View>
 
                 {/* Quick Actions */}
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Manage Shop</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('manage_shop')}</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.actionRow}>
                     {[
-                        { label: 'Profile', emoji: '💈', screen: 'BarberProfile' },
-                        { label: 'Services', emoji: '✂️', screen: 'BarberServices' },
-                        { label: 'Finance', emoji: '💰', screen: null },
-                        { label: 'Settings', emoji: '⚙️', screen: 'BarberSettings' },
+                        { label: t('wallet'), emoji: '💰', screen: 'Wallet' },
+                        { label: t('my_profile'), emoji: '👤', screen: 'BarberProfile' },
+                        { label: t('appointment'), emoji: '✂️', screen: 'BarberServices' },
+                        { label: t('premium'), emoji: '⭐', screen: 'Subscription' },
+                        { label: t('settings'), emoji: '⚙️', screen: 'BarberSettings' },
                     ].map(action => (
                         <TouchableOpacity
                             key={action.label}
-                            style={[styles.actionPill, { backgroundColor: theme.card }]}
-                            onPress={() => action.screen && navigation.navigate(action.screen)}
+                            style={[styles.actionPill, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}
+                            onPress={() => {
+                                if (action.screen) {
+                                    console.log(`[BarberHome] Navigating to ${action.screen}...`);
+                                    navigation.navigate(action.screen);
+                                }
+                            }}
                         >
                             <Text style={styles.actionEmoji}>{action.emoji}</Text>
                             <Text style={[styles.actionText, { color: theme.text }]}>{action.label}</Text>
@@ -288,7 +345,7 @@ export default function BarberHomeScreen({ navigation, route }) {
 
                 {/* Schedule */}
                 <View style={styles.scheduleHeader}>
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Upcoming Schedule</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('upcoming')}</Text>
                 </View>
 
                 {schedule.length === 0 ? (
@@ -335,6 +392,12 @@ export default function BarberHomeScreen({ navigation, route }) {
                                             <Text style={[styles.serviceName, { color: theme.textLight }]}>
                                                 {item.service?.name || "Service"} • Rs {item.total_price || 0}
                                             </Text>
+
+                                            {(item.status === 'confirmed' || item.status === 'completed' || item.status === 'on_the_way') && item.customer?.phone && (
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                                                    <Text style={{ fontSize: 13, fontWeight: '700', color: theme.primary }}>📞 {item.customer.phone}</Text>
+                                                </View>
+                                            )}
 
                                             {/* ✅ Navigate button — barber + home only */}
                                             {userRole === 'barber' && isHomeService && (
@@ -392,7 +455,7 @@ export default function BarberHomeScreen({ navigation, route }) {
                                                         }}
                                                     >
                                                         <Text style={styles.acceptBtnText}>✓</Text>
-                                                        <Text style={styles.acceptBtnLabel}>Accept</Text>
+                                                        <Text style={styles.acceptBtnLabel}>{t('confirmed')}</Text>
                                                     </TouchableOpacity>
 
                                                     {/* DECLINE */}
@@ -422,18 +485,18 @@ export default function BarberHomeScreen({ navigation, route }) {
                                                         }}
                                                     >
                                                         <Text style={styles.declineBtnText}>✗</Text>
-                                                        <Text style={styles.declineBtnLabel}>Decline</Text>
+                                                        <Text style={styles.declineBtnLabel}>{t('cancelled')}</Text>
                                                     </TouchableOpacity>
                                                 </>
                                             ) : item.status === 'confirmed' ? (
                                                 <View style={styles.confirmedBadge}>
                                                     <Text style={styles.confirmedBadgeText}>✓</Text>
-                                                    <Text style={styles.confirmedBadgeLabel}>Confirmed</Text>
+                                                    <Text style={styles.confirmedBadgeLabel}>{t('confirmed')}</Text>
                                                 </View>
                                             ) : item.status === 'completed' ? (
                                                 <View style={[styles.confirmedBadge, { backgroundColor: '#DCFCE7' }]}>
                                                     <Text style={[styles.confirmedBadgeText, { color: '#166534' }]}>✓✓</Text>
-                                                    <Text style={[styles.confirmedBadgeLabel, { color: '#166534' }]}>Done</Text>
+                                                    <Text style={[styles.confirmedBadgeLabel, { color: '#166534' }]}>{t('completed')}</Text>
                                                 </View>
                                             ) : null}
                                         </View>
@@ -530,14 +593,62 @@ const styles = StyleSheet.create({
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 },
     greeting: { fontSize: 24, fontWeight: 'bold' },
     subGreeting: { fontSize: 16 },
-    settingsBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', elevation: 3 },
+    headerRight: { flexDirection: 'row', alignItems: 'center' },
+    headerBtn: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        alignItems: 'center',
+        justifyContent: 'center',
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    badge: {
+        position: 'absolute',
+        top: -5,
+        right: -5,
+        backgroundColor: '#EF4444',
+        minWidth: 18,
+        height: 18,
+        borderRadius: 9,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 4,
+        borderWidth: 1.5,
+        borderColor: '#FFF',
+    },
+    badgeText: {
+        color: '#FFF',
+        fontSize: 10,
+        fontWeight: '900',
+    },
+    profileContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        overflow: 'hidden',
+        borderWidth: 2,
+        borderColor: '#FFF',
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    profileIcon: {
+        width: '100%',
+        height: '100%',
+    },
     statsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
     statCard: { width: '48%', padding: 20, borderRadius: 15, alignItems: 'center' },
     statValue: { fontSize: 24, fontWeight: 'bold', marginBottom: 5 },
     statLabel: { fontSize: 14, fontWeight: '500' },
     sectionTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
     actionRow: { flexDirection: 'row', marginBottom: 30 },
-    actionPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20, marginRight: 10, elevation: 2 },
+    actionPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20, marginRight: 10 },
     actionEmoji: { fontSize: 18, marginRight: 5 },
     actionText: { fontWeight: 'bold' },
     scheduleHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
@@ -632,5 +743,20 @@ const styles = StyleSheet.create({
     profileBannerIcon: { fontSize: 22 },
     profileBannerTitle: { fontSize: 14, fontWeight: '700', color: '#C2410C', marginBottom: 2 },
     profileBannerMsg: { fontSize: 12, color: '#9A3412' },
+
+    // ── Premium Subscription Banner
+    premiumBanner: {
+        flexDirection: 'row', alignItems: 'center',
+        padding: 16, borderRadius: 16, marginBottom: 24,
+        elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2, shadowRadius: 4,
+    },
+    premiumIconContainer: {
+        width: 48, height: 48, borderRadius: 24,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        alignItems: 'center', justifyContent: 'center',
+    },
+    premiumTitle: { color: '#FFF', fontSize: 16, fontWeight: '700', marginBottom: 2 },
+    premiumMsg: { color: 'rgba(255,255,255,0.9)', fontSize: 12, lineHeight: 16 },
 });
 

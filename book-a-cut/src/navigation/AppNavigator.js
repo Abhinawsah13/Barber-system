@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, Alert } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import io from 'socket.io-client';
 import { isLoggedIn, getUserData } from '../services/TokenManager';
@@ -59,6 +59,14 @@ import AIChatScreen from '../screens/shared/AIChatScreen';
 import EditProfileScreen from '../screens/shared/EditProfileScreen';
 import ChangePasswordScreen from '../screens/shared/ChangePasswordScreen';
 import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
+import SubscriptionScreen from '../screens/barber/SubscriptionScreen';
+import CommissionDashboardScreen from '../screens/admin/CommissionDashboardScreen';
+import CommissionTransactionsScreen from '../screens/admin/CommissionTransactionsScreen';
+
+// New Settings Modules
+import LanguageSettingsScreen from "../screens/shared/LanguageSettingsScreen";
+import HelpSupportScreen from "../screens/shared/HelpSupportScreen";
+import TermsPrivacyScreen from "../screens/shared/TermsPrivacyScreen";
 
 const Stack = createStackNavigator();
 
@@ -183,6 +191,7 @@ export default function AppNavigator() {
         <Stack.Screen name="BarberEditProfile" component={BarberEditProfileScreen} />
         <Stack.Screen name="BarberServices" component={BarberServicesScreen} />
         <Stack.Screen name="BarberSettings" component={BarberSettingsScreen} />
+        <Stack.Screen name="Subscription" component={SubscriptionScreen} />
 
         {/* Customer Screens */}
         <Stack.Screen name="CustomerSettings" component={CustomerSettingsScreen} />
@@ -202,6 +211,13 @@ export default function AppNavigator() {
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
         <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+        <Stack.Screen name="CommissionDashboard" component={CommissionDashboardScreen} />
+        <Stack.Screen name="AllTransactions" component={CommissionTransactionsScreen} />
+
+        {/* New Settings Modules */}
+        <Stack.Screen name="LanguageSettings" component={LanguageSettingsScreen} />
+        <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
+        <Stack.Screen name="TermsPrivacy" component={TermsPrivacyScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

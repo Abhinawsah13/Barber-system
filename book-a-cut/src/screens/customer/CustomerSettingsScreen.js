@@ -3,19 +3,26 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Alert } f
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageProvider';
 
 export default function CustomerSettingsScreen({ navigation }) {
     const { theme, darkMode, toggleTheme } = useTheme();
+    const { t, language } = useLanguage();
     const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+
+    const getLanguageName = (code) => {
+        const names = { en: 'English', np: 'नेपाली', hi: 'हिन्दी' };
+        return names[code] || 'English';
+    };
 
     const handleLogout = () => {
         Alert.alert(
-            'Logout',
-            'Are you sure you want to logout?',
+            t('logout'),
+            t('logout_confirm'),
             [
-                { text: 'Cancel', style: 'cancel' },
+                { text: t('cancel'), style: 'cancel' },
                 {
-                    text: 'Logout',
+                    text: t('logout'),
                     style: 'destructive',
                     onPress: async () => {
                         try {
@@ -26,7 +33,7 @@ export default function CustomerSettingsScreen({ navigation }) {
                                 routes: [{ name: 'Login' }],
                             });
                         } catch (error) {
-                            Alert.alert('Error', 'Failed to logout');
+                            Alert.alert(t('error'), t('logout_fail') || 'Failed to logout');
                         }
                     }
                 }
@@ -69,39 +76,39 @@ export default function CustomerSettingsScreen({ navigation }) {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Settings</Text>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>{t('settings')}</Text>
                 <View style={{ width: 40 }} />
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* Account Settings */}
-                <SettingsSection title="ACCOUNT">
+                <SettingsSection title={t('account')}>
                     <SettingsItem
                         icon="👤"
-                        title="Edit Profile"
-                        subtitle="Update your profile information"
+                        title={t('edit_profile')}
+                        subtitle={t('update_profile_info')}
                         onPress={() => navigation.navigate('EditProfile', { user: {} })}
                     />
                     <SettingsItem
                         icon="🔒"
-                        title="Change Password"
-                        subtitle="Update your password"
+                        title={t('change_password')}
+                        subtitle={t('update_password')}
                         onPress={() => navigation.navigate('ChangePassword')}
                     />
                     <SettingsItem
                         icon="📍"
-                        title="Saved Addresses"
-                        subtitle="Manage your addresses"
-                        onPress={() => Alert.alert('Coming Soon', 'Address management will be available soon')}
+                        title={t('saved_addresses')}
+                        subtitle={t('manage_addresses')}
+                        onPress={() => Alert.alert(t('manage'), t('address_mgmt_coming_soon'))}
                     />
                 </SettingsSection>
 
                 {/* App Settings */}
-                <SettingsSection title="APP SETTINGS">
+                <SettingsSection title={t('preferences')}>
                     <SettingsItem
                         icon="🌙"
-                        title="Dark Mode"
-                        subtitle={darkMode ? "Dark theme enabled" : "Light theme enabled"}
+                        title={t('dark_mode')}
+                        subtitle={darkMode ? t('dark_theme_enabled') : t('light_theme_enabled')}
                         showArrow={false}
                         rightComponent={
                             <Switch
@@ -113,61 +120,47 @@ export default function CustomerSettingsScreen({ navigation }) {
                         }
                     />
                     <SettingsItem
-                        icon="🔔"
-                        title="Notifications"
-                        subtitle={notificationsEnabled ? "Enabled" : "Disabled"}
-                        showArrow={false}
-                        rightComponent={
-                            <Switch
-                                value={notificationsEnabled}
-                                onValueChange={setNotificationsEnabled}
-                                trackColor={{ false: theme.border, true: theme.primary }}
-                                thumbColor={notificationsEnabled ? theme.primaryDark : '#f4f3f4'}
-                            />
-                        }
-                    />
-                    <SettingsItem
                         icon="🌐"
-                        title="Language"
-                        subtitle="English (US)"
-                        onPress={() => Alert.alert('Coming Soon', 'Language selection will be available soon')}
+                        title={t('language')}
+                        subtitle={getLanguageName(language)}
+                        onPress={() => navigation.navigate('LanguageSettings')}
                     />
                 </SettingsSection>
 
                 {/* Booking History */}
-                <SettingsSection title="BOOKINGS">
+                <SettingsSection title={t('bookings_section')}>
                     <SettingsItem
                         icon="📅"
-                        title="My Bookings"
-                        subtitle="View booking history"
+                        title={t('my_bookings')}
+                        subtitle={t('booking_history_subtitle')}
                         onPress={() => navigation.navigate('BookingHistory')}
                     />
                     <SettingsItem
                         icon="⭐"
-                        title="Favorite Barbers"
-                        subtitle="Your saved barbers"
-                        onPress={() => Alert.alert('Coming Soon', 'Favorites will be available soon')}
+                        title={t('favorite_barbers')}
+                        subtitle={t('saved_barbers_subtitle')}
+                        onPress={() => Alert.alert(t('favorites'), t('favorites_coming_soon'))}
                     />
                 </SettingsSection>
 
                 {/* Support */}
-                <SettingsSection title="SUPPORT">
+                <SettingsSection title={t('help_support')}>
                     <SettingsItem
                         icon="❓"
-                        title="Help & Support"
-                        subtitle="Get help with the app"
-                        onPress={() => Alert.alert('Help', 'Contact support@bookacutapp.com')}
+                        title={t('faq')}
+                        subtitle={t('faq_subtitle')}
+                        onPress={() => navigation.navigate('HelpSupport')}
                     />
                     <SettingsItem
                         icon="📄"
-                        title="Terms & Privacy"
-                        subtitle="Read our policies"
-                        onPress={() => Alert.alert('Info', 'Terms and Privacy Policy')}
+                        title={t('terms_and_privacy')}
+                        subtitle={t('terms_privacy_subtitle')}
+                        onPress={() => navigation.navigate('TermsPrivacy')}
                     />
                     <SettingsItem
                         icon="ℹ️"
-                        title="About"
-                        subtitle="Version 1.0.0"
+                        title={t('about_app')}
+                        subtitle={`${t('version')} 1.0.0`}
                         showArrow={false}
                     />
                 </SettingsSection>
@@ -177,7 +170,7 @@ export default function CustomerSettingsScreen({ navigation }) {
                     style={[styles.logoutBtn, { backgroundColor: theme.card, borderColor: theme.error }]}
                     onPress={handleLogout}
                 >
-                    <Text style={[styles.logoutText, { color: theme.error }]}>🚪 Logout</Text>
+                    <Text style={[styles.logoutText, { color: theme.error }]}>🚪 {t('logout')}</Text>
                 </TouchableOpacity>
 
                 <View style={{ height: 40 }} />

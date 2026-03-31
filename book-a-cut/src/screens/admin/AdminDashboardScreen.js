@@ -6,8 +6,27 @@ import {
 } from 'react-native';
 import { getToken, removeToken } from '../../services/TokenManager';
 import { API_BASE_URL } from '../../config/server';
+import { useTheme } from '../../context/ThemeContext';
+import { Ionicons } from '@expo/vector-icons';
 
 const BASE = `${API_BASE_URL}/admin`;
+
+// ─── REUSABLE COMPONENTS ──────────────────────────────────
+const FilterButton = ({ title, isActive, onPress }) => (
+  <TouchableOpacity
+    style={[
+      styles.filterBtn,
+      isActive && styles.filterBtnActive,
+      { transform: [{ scale: isActive ? 1 : 0.98 }] }
+    ]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
+    <Text style={[styles.filterBtnText, isActive && styles.filterBtnTextActive]}>
+      {title}
+    </Text>
+  </TouchableOpacity>
+);
 
 // ─── API HELPER ───────────────────────────────────────────
 const apiCall = async (method, endpoint, body = null) => {
@@ -26,11 +45,14 @@ const apiCall = async (method, endpoint, body = null) => {
 
 // ─── MAIN COMPONENT ───────────────────────────────────────
 export default function AdminDashboardScreen({ navigation }) {
+  const { theme, darkMode } = useTheme();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  const [selectedUser, setSelectedUser] = useState(null);
 
   // Notification modal
   const [notifModal, setNotifModal] = useState(false);
@@ -41,13 +63,17 @@ export default function AdminDashboardScreen({ navigation }) {
   // Suspend modal
   const [suspendModal, setSuspendModal] = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
-  const [selectedUser, setSelectedUser] = useState(null);
+
+  // Filters
+  const [userRoleFilter, setUserRoleFilter] = useState('all'); // all, customer, barber
+  const [userStatusFilter, setUserStatusFilter] = useState('all'); // all, active, suspended
+  const [complaintStatusFilter, setComplaintStatusFilter] = useState('all'); // all, pending, resolved
 
   useEffect(() => {
     if (activeTab === 'dashboard') loadStats();
     if (activeTab === 'users') loadUsers();
     if (activeTab === 'complaints') loadComplaints();
-  }, [activeTab]);
+  }, [activeTab, userRoleFilter, userStatusFilter, complaintStatusFilter]);
 
   // ─── LOADERS ──────────────────────────────────────────
   const loadStats = async () => {
@@ -59,14 +85,16 @@ export default function AdminDashboardScreen({ navigation }) {
 
   const loadUsers = async () => {
     setLoading(true);
-    const res = await apiCall('GET', '/users');
+    const query = `?role=${userRoleFilter}&status=${userStatusFilter}`;
+    const res = await apiCall('GET', `/users${query}`);
     if (res.success) setUsers(res.data);
     setLoading(false);
   };
 
   const loadComplaints = async () => {
     setLoading(true);
-    const res = await apiCall('GET', '/complaints');
+    const query = `?status=${complaintStatusFilter}`;
+    const res = await apiCall('GET', `/complaints${query}`);
     if (res.success) setComplaints(res.data);
     setLoading(false);
   };
@@ -98,6 +126,25 @@ export default function AdminDashboardScreen({ navigation }) {
             const res = await apiCall('PUT', `/users/${user._id}/reactivate`);
             Alert.alert(res.success ? 'Done' : 'Error', res.message);
             loadUsers();
+          }
+        }
+      ]
+    );
+  };
+  
+  const handlePermanentDelete = (user) => {
+    Alert.alert(
+      '🚨 PERMANENT DELETE',
+      `Are you sure you want to permanently delete ${user.username}? This will remove all their profile data and subscriptions. THIS CANNOT BE UNDONE.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'DELETE PERMANENTLY',
+          style: 'destructive',
+          onPress: async () => {
+            const res = await apiCall('DELETE', `/users/${user._id}`);
+            Alert.alert(res.success ? 'Success' : 'Error', res.message);
+            if (res.success) loadUsers();
           }
         }
       ]
@@ -166,30 +213,72 @@ export default function AdminDashboardScreen({ navigation }) {
   // ─── RENDER TABS ──────────────────────────────────────
   const renderDashboard = () => (
     <ScrollView showsVerticalScrollIndicator={false}>
-      <Text style={styles.sectionTitle}>Overview</Text>
-      {loading ? <ActivityIndicator color="#B76E22" style={{ marginTop: 40 }} /> : (
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
+      {loading ? <ActivityIndicator color={theme.primary} style={{ marginTop: 40 }} /> : (
         <View style={styles.statsGrid}>
-          <StatCard label="Customers" value={stats?.totalCustomers ?? 0} color="#4CAF50" icon="👤" />
-          <StatCard label="Barbers" value={stats?.totalBarbers ?? 0} color="#2196F3" icon="✂️" />
-          <StatCard label="Suspended" value={stats?.suspendedUsers ?? 0} color="#F44336" icon="🚫" />
-          <StatCard label="Complaints" value={stats?.pendingComplaints ?? 0} color="#FF9800" icon="📋" />
+          <StatCard 
+            label="Customers" 
+            value={stats?.totalCustomers ?? 0} 
+            color="#4CAF50" 
+            icon="👤" 
+            onPress={() => {
+              setUserRoleFilter('customer');
+              setUserStatusFilter('all');
+              setActiveTab('users');
+            }}
+          />
+          <StatCard 
+            label="Barbers" 
+            value={stats?.totalBarbers ?? 0} 
+            color="#2196F3" 
+            icon="✂️" 
+            onPress={() => {
+              setUserRoleFilter('barber');
+              setUserStatusFilter('all');
+              setActiveTab('users');
+            }}
+          />
+          <StatCard 
+            label="Suspended" 
+            value={stats?.suspendedUsers ?? 0} 
+            color="#F44336" 
+            icon="🚫" 
+            onPress={() => {
+              setUserRoleFilter('all');
+              setUserStatusFilter('suspended');
+              setActiveTab('users');
+            }}
+          />
+          <StatCard 
+            label="Complaints" 
+            value={stats?.pendingComplaints ?? 0} 
+            color="#FF9800" 
+            icon="📋" 
+            onPress={() => {
+              setComplaintStatusFilter('pending');
+              setActiveTab('complaints');
+            }}
+          />
         </View>
       )}
 
       <TouchableOpacity
-        style={styles.notifButton}
+        style={[styles.notifButton, { backgroundColor: theme.primary }]}
         onPress={() => setNotifModal(true)}
       >
         <Text style={styles.notifButtonText}>🔔 Send Notification</Text>
       </TouchableOpacity>
 
       <View style={styles.quickLinks}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <TouchableOpacity style={styles.quickBtn} onPress={() => setActiveTab('users')}>
-          <Text style={styles.quickBtnText}>👥 Manage Users →</Text>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Quick Actions</Text>
+        <TouchableOpacity style={[styles.quickBtn, { backgroundColor: theme.card }]} onPress={() => navigation.navigate('CommissionDashboard')}>
+          <Text style={[styles.quickBtnText, { color: theme.primary }]}>💰 Revenue Dashboard →</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.quickBtn} onPress={() => setActiveTab('complaints')}>
-          <Text style={styles.quickBtnText}>📋 View Complaints →</Text>
+        <TouchableOpacity style={[styles.quickBtn, { backgroundColor: theme.card }]} onPress={() => setActiveTab('users')}>
+          <Text style={[styles.quickBtnText, { color: theme.primary }]}>👥 Manage Users →</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.quickBtn, { backgroundColor: theme.card }]} onPress={() => setActiveTab('complaints')}>
+          <Text style={[styles.quickBtnText, { color: theme.primary }]}>📋 View Complaints →</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -197,135 +286,216 @@ export default function AdminDashboardScreen({ navigation }) {
 
   const renderUsers = () => (
     <View style={{ flex: 1 }}>
-      <Text style={styles.sectionTitle}>All Users</Text>
-      {loading
-        ? <ActivityIndicator color="#B76E22" style={{ marginTop: 40 }} />
-        : (
+      <View style={styles.sectionHeader}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>User Management</Text>
+        <TouchableOpacity onPress={() => { setUserRoleFilter('all'); setUserStatusFilter('all'); loadUsers(); }}>
+          <Text style={[styles.resetText, { color: theme.primary }]}>Reset</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Role Filters */}
+      <View style={styles.filterContainer}>
+        <FilterButton
+          title="All Roles"
+          isActive={userRoleFilter === 'all'}
+          onPress={() => setUserRoleFilter('all')}
+        />
+        <FilterButton
+          title="👤 Customers"
+          isActive={userRoleFilter === 'customer'}
+          onPress={() => setUserRoleFilter('customer')}
+        />
+        <FilterButton
+          title="✂️ Barbers"
+          isActive={userRoleFilter === 'barber'}
+          onPress={() => setUserRoleFilter('barber')}
+        />
+      </View>
+
+      {/* Status Filters */}
+      <View style={[styles.filterContainer, { marginBottom: 16 }]}>
+        <FilterButton
+          title="Any Status"
+          isActive={userStatusFilter === 'all'}
+          onPress={() => setUserStatusFilter('all')}
+        />
+        <FilterButton
+          title="✅ Active"
+          isActive={userStatusFilter === 'active'}
+          onPress={() => setUserStatusFilter('active')}
+        />
+        <FilterButton
+          title="🚫 Suspended"
+          isActive={userStatusFilter === 'suspended'}
+          onPress={() => setUserStatusFilter('suspended')}
+        />
+      </View>
+
+      {/* Inline Loading Indicator */}
+      {loading && <ActivityIndicator color={theme.primary} size="small" style={{ marginBottom: 10 }} />}
+
           <FlatList
-            data={users}
-            keyExtractor={(item) => item._id}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <View style={styles.userCard}>
-                <View style={styles.userInfo}>
-                  <View style={styles.userAvatar}>
-                    <Text style={styles.avatarText}>
-                      {item.username?.[0]?.toUpperCase()}
+        data={users}
+        keyExtractor={(item) => item._id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+        style={{ opacity: loading ? 0.6 : 1 }}
+        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No users found with these filters</Text> : null}
+        renderItem={({ item }) => (
+            <View style={[styles.userCard, { backgroundColor: theme.card }]}>
+            <View style={styles.userInfo}>
+              <View style={[styles.userAvatar, { backgroundColor: theme.primary }]}>
+                <Text style={styles.avatarText}>
+                  {item.username?.[0]?.toUpperCase()}
+                </Text>
+              </View>
+              <View>
+                <Text style={[styles.userName, { color: theme.text }]}>{item.username}</Text>
+                <Text style={[styles.userEmail, { color: theme.textSecondary || theme.textLight }]}>{item.email || 'No email'}</Text>
+                <View style={styles.badgeRow}>
+                  <View style={[
+                    styles.badge,
+                    { backgroundColor: item.user_type === 'barber' ? '#2196F3' : '#4CAF50' }
+                  ]}>
+                    <Text style={styles.badgeText}>
+                      {item.user_type === 'barber' ? '✂️ Barber' : '👤 Customer'}
                     </Text>
                   </View>
-                  <View>
-                    <Text style={styles.userName}>{item.username}</Text>
-                    <Text style={styles.userEmail}>{item.email}</Text>
-                    <View style={styles.badgeRow}>
-                      <View style={[
-                        styles.badge,
-                        { backgroundColor: item.user_type === 'barber' ? '#2196F3' : '#4CAF50' }
-                      ]}>
-                        <Text style={styles.badgeText}>
-                          {item.user_type === 'barber' ? '✂️ Barber' : '👤 Customer'}
-                        </Text>
-                      </View>
-                      <View style={[
-                        styles.badge,
-                        { backgroundColor: item.is_active ? '#E8F5E9' : '#FFEBEE' }
-                      ]}>
-                        <Text style={[
-                          styles.badgeText,
-                          { color: item.is_active ? '#2E7D32' : '#C62828' }
-                        ]}>
-                          {item.is_active ? 'Active' : 'Suspended'}
-                        </Text>
-                      </View>
-                    </View>
+                  <View style={[
+                    styles.badge,
+                    { backgroundColor: item.is_active ? '#E8F5E9' : '#FFEBEE' }
+                  ]}>
+                    <Text style={[
+                      styles.badgeText,
+                      { color: item.is_active ? '#2E7D32' : '#C62828' }
+                    ]}>
+                      {item.is_active ? 'Active' : 'Suspended'}
+                    </Text>
                   </View>
                 </View>
-
-                <View style={styles.userActions}>
-                  {item.is_active ? (
-                    <TouchableOpacity
-                      style={[styles.actionBtn, { backgroundColor: '#FFEBEE' }]}
-                      onPress={() => {
-                        setSelectedUser(item);
-                        setSuspendModal(true);
-                      }}
-                    >
-                      <Text style={[styles.actionBtnText, { color: '#C62828' }]}>
-                        Suspend
-                      </Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.actionBtn, { backgroundColor: '#E8F5E9' }]}
-                      onPress={() => handleReactivate(item)}
-                    >
-                      <Text style={[styles.actionBtnText, { color: '#2E7D32' }]}>
-                        Reactivate
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
               </View>
-            )}
-          />
+            </View>
+
+            <View style={styles.userActions}>
+              {item.is_active ? (
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: '#FFEBEE' }]}
+                  onPress={() => {
+                    setSelectedUser(item);
+                    setSuspendModal(true);
+                  }}
+                >
+                  <Text style={[styles.actionBtnText, { color: '#C62828' }]}>
+                    Suspend
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: '#E8F5E9' }]}
+                  onPress={() => handleReactivate(item)}
+                >
+                  <Text style={[styles.actionBtnText, { color: '#2E7D32' }]}>
+                    Reactivate
+                  </Text>
+                </TouchableOpacity>
+              )}
+              
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: '#FFEBEE', marginLeft: 8 }]}
+                onPress={() => handlePermanentDelete(item)}
+              >
+                <Text style={[styles.actionBtnText, { color: '#C62828' }]}>
+                  🗑️ Delete
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
+      />
     </View>
   );
 
   const renderComplaints = () => (
     <View style={{ flex: 1 }}>
-      <Text style={styles.sectionTitle}>Complaints</Text>
-      {loading
-        ? <ActivityIndicator color="#B76E22" style={{ marginTop: 40 }} />
-        : complaints.length === 0
-          ? <Text style={styles.emptyText}>No complaints yet 🎉</Text>
-          : (
-            <FlatList
-              data={complaints}
-              keyExtractor={(item) => item._id}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <View style={styles.complaintCard}>
-                  <View style={styles.complaintHeader}>
-                    <Text style={styles.complaintUser}>
-                      {item.userId?.username || 'Unknown'}
-                    </Text>
-                    <View style={[
-                      styles.badge,
-                      { backgroundColor: item.status === 'pending' ? '#FFF3E0' : '#E8F5E9' }
-                    ]}>
-                      <Text style={[
-                        styles.badgeText,
-                        { color: item.status === 'pending' ? '#E65100' : '#2E7D32' }
-                      ]}>
-                        {item.status === 'pending' ? '⏳ Pending' : '✅ Resolved'}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.complaintSubject}>{item.subject}</Text>
-                  <Text style={styles.complaintMessage}>{item.message}</Text>
-                  {item.status === 'pending' && (
-                    <TouchableOpacity
-                      style={styles.resolveBtn}
-                      onPress={() => handleResolveComplaint(item)}
-                    >
-                      <Text style={styles.resolveBtnText}>Mark as Resolved</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-            />
-          )}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Complaints & Cases</Text>
+        <TouchableOpacity onPress={() => setComplaintStatusFilter('all')}>
+          <Text style={styles.resetText}>Reset</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Complaint Status Filters */}
+      <View style={[styles.filterContainer, { marginBottom: 16 }]}>
+        <FilterButton
+          title="All Cases"
+          isActive={complaintStatusFilter === 'all'}
+          onPress={() => setComplaintStatusFilter('all')}
+        />
+        <FilterButton
+          title="⏳ Pending"
+          isActive={complaintStatusFilter === 'pending'}
+          onPress={() => setComplaintStatusFilter('pending')}
+        />
+        <FilterButton
+          title="✅ Resolved"
+          isActive={complaintStatusFilter === 'resolved'}
+          onPress={() => setComplaintStatusFilter('resolved')}
+        />
+      </View>
+
+      {/* Inline Loading Indicator */}
+      {loading && <ActivityIndicator color="#B76E22" size="small" style={{ marginBottom: 10 }} />}
+
+          {/* Complaints List */}
+      <FlatList
+        data={complaints}
+        keyExtractor={(item) => item._id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+        style={{ opacity: loading ? 0.6 : 1 }}
+        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No complaints yet 🎉</Text> : null}
+        renderItem={({ item }) => (
+          <View style={[styles.complaintCard, { backgroundColor: theme.card }]}>
+            <View style={styles.complaintHeader}>
+              <Text style={[styles.complaintUser, { color: theme.text }]}>
+                {item.userId?.username || 'Unknown'}
+              </Text>
+              <View style={[
+                styles.badge,
+                { backgroundColor: item.status === 'pending' ? '#FFF3E0' : '#E8F5E9' }
+              ]}>
+                <Text style={[
+                  styles.badgeText,
+                  { color: item.status === 'pending' ? '#E65100' : '#2E7D32' }
+                ]}>
+                  {item.status === 'pending' ? '⏳ Pending' : '✅ Resolved'}
+                </Text>
+              </View>
+            </View>
+            <Text style={[styles.complaintSubject, { color: theme.primary }]}>{item.subject}</Text>
+            <Text style={[styles.complaintMessage, { color: theme.textSecondary || theme.textLight }]}>{item.message}</Text>
+            {item.status === 'pending' && (
+              <TouchableOpacity
+                style={styles.resolveBtn}
+                onPress={() => handleResolveComplaint(item)}
+              >
+                <Text style={styles.resolveBtnText}>Mark as Resolved</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      />
     </View>
   );
 
   // ─── MAIN RENDER ──────────────────────────────────────
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.primary }]}>
         <View>
           <Text style={styles.headerTitle}>⚙️ Admin Panel</Text>
-          <Text style={styles.headerSubtitle}>Book-A-Cut Management</Text>
+          <Text style={[styles.headerSubtitle, { color: theme.primaryLight }]}>Book-A-Cut Management</Text>
         </View>
         <TouchableOpacity
           style={styles.logoutBtn}
@@ -340,10 +510,10 @@ export default function AdminDashboardScreen({ navigation }) {
         {['dashboard', 'users', 'complaints'].map((tab) => (
           <TouchableOpacity
             key={tab}
-            style={[styles.tab, activeTab === tab && styles.activeTab]}
+            style={[styles.tab, { backgroundColor: theme.card }, activeTab === tab && [styles.activeTab, { borderBottomColor: theme.primary }]]}
             onPress={() => setActiveTab(tab)}
           >
-            <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
+            <Text style={[styles.tabText, activeTab === tab && [styles.activeTabText, { color: theme.primary }]]}>
               {tab === 'dashboard' ? '🏠 Home' :
                tab === 'users' ? '👥 Users' : '📋 Cases'}
             </Text>
@@ -410,7 +580,7 @@ export default function AdminDashboardScreen({ navigation }) {
                 <Text style={{ color: '#333' }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: '#B76E22' }]}
+                style={[styles.modalBtn, { backgroundColor: theme.primary }]}
                 onPress={handleSendNotification}
               >
                 <Text style={{ color: '#fff' }}>Send</Text>
@@ -457,20 +627,24 @@ export default function AdminDashboardScreen({ navigation }) {
 }
 
 // ─── STAT CARD COMPONENT ──────────────────────────────────
-const StatCard = ({ label, value, color, icon }) => (
-  <View style={[styles.statCard, { borderLeftColor: color }]}>
+const StatCard = ({ label, value, color, icon, onPress }) => (
+  <TouchableOpacity 
+    style={[styles.statCard, { borderLeftColor: color }]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
     <Text style={styles.statIcon}>{icon}</Text>
     <Text style={[styles.statValue, { color }]}>{value}</Text>
     <Text style={styles.statLabel}>{label}</Text>
-  </View>
+  </TouchableOpacity>
 );
 
 // ─── STYLES ───────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF8F0' },
+  container: { flex: 1, backgroundColor: '#FFFCF5' },
 
   header: {
-    backgroundColor: '#B76E22',
+    backgroundColor: '#9C27B0',
     paddingTop: 55,
     paddingBottom: 20,
     paddingHorizontal: 20,
@@ -479,7 +653,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#fff' },
-  headerSubtitle: { fontSize: 13, color: '#FFE0B2', marginTop: 2 },
+  headerSubtitle: { fontSize: 13, color: '#E1BEE7', marginTop: 2 },
 
   tabBar: {
     flexDirection: 'row',
@@ -488,12 +662,50 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee'
   },
   tab: { flex: 1, paddingVertical: 14, alignItems: 'center' },
-  activeTab: { borderBottomWidth: 3, borderBottomColor: '#B76E22' },
+  activeTab: { borderBottomWidth: 3, borderBottomColor: '#9C27B0' },
   tabText: { fontSize: 13, color: '#999' },
-  activeTabText: { color: '#B76E22', fontWeight: 'bold' },
+  activeTabText: { color: '#9C27B0', fontWeight: 'bold' },
 
   content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 12 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  resetText: { fontSize: 13, color: '#9C27B0', fontWeight: '600' },
+
+  filterContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 10,
+    justifyContent: 'flex-start'
+  },
+  filterBtn: {
+    width: 120,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2
+  },
+  filterBtnActive: {
+    backgroundColor: '#9C27B0',
+    borderColor: '#9C27B0'
+  },
+  filterBtnText: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '600',
+    textAlign: 'center'
+  },
+  filterBtnTextActive: {
+    color: '#fff'
+  },
 
   statsGrid: {
     flexDirection: 'row',
@@ -515,7 +727,7 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 12, color: '#888', marginTop: 2 },
 
   notifButton: {
-    backgroundColor: '#B76E22',
+    backgroundColor: '#9C27B0',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
@@ -531,7 +743,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     elevation: 1
   },
-  quickBtnText: { color: '#B76E22', fontWeight: '600' },
+  quickBtnText: { color: '#9C27B0', fontWeight: '600' },
 
   userCard: {
     backgroundColor: '#fff',
@@ -545,7 +757,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#B76E22',
+    backgroundColor: '#9C27B0',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12
@@ -574,7 +786,7 @@ const styles = StyleSheet.create({
     marginBottom: 6
   },
   complaintUser: { fontWeight: 'bold', color: '#333' },
-  complaintSubject: { fontWeight: '600', color: '#B76E22', marginBottom: 4 },
+  complaintSubject: { fontWeight: '600', color: '#9C27B0', marginBottom: 4 },
   complaintMessage: { fontSize: 13, color: '#666', marginBottom: 10 },
   resolveBtn: {
     backgroundColor: '#E8F5E9',
@@ -617,7 +829,7 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     alignItems: 'center'
   },
-  targetBtnActive: { backgroundColor: '#B76E22', borderColor: '#B76E22' },
+  targetBtnActive: { backgroundColor: '#9C27B0', borderColor: '#9C27B0' },
   targetBtnText: { color: '#666', fontWeight: '600' },
   targetBtnTextActive: { color: '#fff' },
   modalActions: { flexDirection: 'row', gap: 10 },

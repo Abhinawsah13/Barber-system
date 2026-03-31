@@ -28,6 +28,8 @@ export default function EditProfileScreen({ route, navigation }) {
     };
 
     const pickImage = async () => {
+        // 'allowsEditing: true' enables the native cropping tool
+        // On most devices, the "OK" or "Tick" button appears after cropping
         let result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,

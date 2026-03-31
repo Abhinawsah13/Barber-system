@@ -53,29 +53,16 @@ export default function OnboardingScreen3({ navigation }) {
           </View>
         </View>
 
-        <View style={[styles.paymentCard, {
-          backgroundColor: THEME.paymentCardBg,
-          borderColor: THEME.border,
-        }]}>
-          <View style={[styles.paymentIcon, { backgroundColor: THEME.esewaBg }]}>
-            <Text style={styles.paymentIconText}>e</Text>
-          </View>
-          <View style={styles.paymentTextContainer}>
-            <Text style={[styles.paymentTitle, { color: THEME.text }]}>eSewa</Text>
-            <Text style={[styles.paymentStatus, { color: THEME.textLight }]}>
-              Quick Pay
-            </Text>
-          </View>
-        </View>
+
       </View>
 
       <Text style={[styles.title, { color: THEME.text }]}>
-        Pay with Khalti & eSewa
+        Pay with Khalti
       </Text>
 
       <Text style={[styles.description, { color: THEME.textLight }]}>
         Enjoy seamless cashless payments. Securely book your next haircut using
-        Khalti or eSewa instantly.
+        Khalti instantly.
       </Text>
 
       <View style={styles.dotsContainer}>
