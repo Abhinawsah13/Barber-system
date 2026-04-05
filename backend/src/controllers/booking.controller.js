@@ -142,7 +142,23 @@ export const createBooking = async (req, res) => {
             });
         }
 
-        // Conflict check
+        // ✅ Explicit duplicate slot check (barber + date + time_slot)
+        const duplicateSlot = await Booking.findOne({
+            barber: barberId,
+            date: bookingDate,
+            time_slot,
+            status: { $in: ['pending', 'confirmed', 'completed'] },
+        }).session(session).lean();
+
+        if (duplicateSlot) {
+            await session.abortTransaction();
+            return res.status(409).json({
+                success: false,
+                message: 'This time slot is already booked. Please select another time.'
+            });
+        }
+
+        // Conflict check (overlapping duration)
         const conflict = await hasConflict(barberId, dateStr, time_slot, service.duration_minutes, session);
         if (conflict) {
             await session.abortTransaction();

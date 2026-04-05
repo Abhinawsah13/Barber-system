@@ -18,8 +18,19 @@ const KHALTI_BASE = 'https://dev.khalti.com/api/v2';
 
 const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:3000';
 
-// ─── Helper: Create a pending booking for payment ────────────────────────────
-const createPendingBooking = async (userId, data) => {
+// ─── Helper: Duplicate slot guard ────────────────────────────────────────────
+const isSlotAlreadyBooked = async (barberId, date, timeSlot) => {
+    const existing = await Booking.findOne({
+        barber: barberId,
+        date: new Date(date),
+        time_slot: timeSlot,
+        status: { $in: ['pending', 'confirmed', 'completed'] },
+    }).lean();
+    return !!existing;
+};
+
+// ─── Helper: Create a confirmed booking AFTER payment succeeds ────────────────
+const createConfirmedBooking = async (userId, data, pidx) => {
     const { barberId, serviceId, date, timeSlot, serviceType,
         customerAddress, notes, amount } = data;
 
@@ -27,6 +38,12 @@ const createPendingBooking = async (userId, data) => {
     if (!service) throw new Error('Service not found');
 
     const barberProfile = await BarberProfile.findOne({ user: barberId }).lean();
+
+    // ✅ Duplicate slot guard before DB write
+    const alreadyBooked = await isSlotAlreadyBooked(barberId, date, timeSlot);
+    if (alreadyBooked) {
+        throw Object.assign(new Error('This time slot is already booked. Please choose another.'), { statusCode: 409 });
+    }
 
     const booking = await Booking.create({
         customer: userId,
@@ -39,22 +56,27 @@ const createPendingBooking = async (userId, data) => {
         notes: notes || '',
         barber_location: barberProfile?.location || null,
         total_price: amount,
-        payment_status: 'pending',
-        payment_method: 'khalti', // will be overridden per gateway
+        payment_status: 'paid',      // ✅ Immediately paid — created only after confirmation
+        payment_method: 'khalti',
+        transaction_id: pidx,
         status: 'pending',
     });
 
     return booking;
 };
 
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // KHALTI
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ─── POST /v2/payments/khalti/initiate ───────────────────────────────────────
+// ✅ FIXED: Does NOT create a booking here.
+// Booking is created ONLY inside verifyKhalti, after Khalti confirms payment.
 export const initiateKhalti = async (req, res) => {
     try {
-        const { amount, existingBookingId, ...bookingData } = req.body;
+        const { amount, barberId, serviceId, date, timeSlot, serviceType,
+            customerAddress, notes } = req.body;
 
         if (!KHALTI_SECRET) {
             return res.status(500).json({
@@ -63,22 +85,29 @@ export const initiateKhalti = async (req, res) => {
             });
         }
 
-        // 1. Create or retrieve booking
-        let booking;
-        if (existingBookingId) {
-            booking = await Booking.findById(existingBookingId);
-            if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
-            if (booking.payment_status === 'paid') return res.status(400).json({ success: false, message: 'Booking is already paid' });
-            booking.payment_method = 'khalti';
-            await booking.save();
-        } else {
-            booking = await createPendingBooking(req.user._id, { ...bookingData, amount });
-            booking.payment_method = 'khalti';
-            await booking.save();
+        // Validate required booking fields upfront
+        if (!barberId || !serviceId || !date || !timeSlot || !amount) {
+            return res.status(400).json({
+                success: false,
+                message: 'barberId, serviceId, date, timeSlot, and amount are required'
+            });
         }
 
-        // 2. Get customer info for Khalti
+        // ✅ Pre-flight duplicate check BEFORE involving Khalti
+        const alreadyBooked = await isSlotAlreadyBooked(barberId, date, timeSlot);
+        if (alreadyBooked) {
+            return res.status(409).json({
+                success: false,
+                message: 'This time slot is already booked. Please choose another.'
+            });
+        }
+
+        // 1. Get customer info for Khalti
         const customer = await User.findById(req.user._id).select('username email phone').lean();
+
+        // 2. Use a unique order ID — we use a temp reference (NOT a booking ID)
+        //    The real booking is created in verifyKhalti after payment succeeds.
+        const tempOrderId = `TEMP_${req.user._id}_${Date.now()}`;
 
         // 3. Initiate KPG-2 Payment
         const response = await axios.post(
@@ -87,8 +116,8 @@ export const initiateKhalti = async (req, res) => {
                 return_url: `${APP_BASE_URL}/api/v2/payments/khalti/callback`,
                 website_url: APP_BASE_URL,
                 amount: Math.round(amount * 100), // convert Rs to Paisa
-                purchase_order_id: booking._id.toString(),
-                purchase_order_name: `Barber Booking #${booking._id.toString().substring(0, 8)}`,
+                purchase_order_id: tempOrderId,
+                purchase_order_name: `Barber Booking - ${customer.username || 'Customer'}`,
                 customer_info: {
                     name: customer.username || "Test User",
                     email: customer.email || "test@gmail.com",
@@ -105,21 +134,19 @@ export const initiateKhalti = async (req, res) => {
 
         const { pidx, payment_url } = response.data;
 
-        // Save pidx to booking (optional but good for tracking)
-        booking.transaction_id = pidx;
-        await booking.save();
-
         return res.json({
             success: true,
             paymentUrl: payment_url,
             pidx: pidx,
-            bookingId: booking._id,
+            // Return booking intent data so the frontend can pass it back on verify
+            bookingIntent: { barberId, serviceId, date, timeSlot, serviceType, customerAddress, notes, amount },
         });
     } catch (err) {
         console.error('[Khalti Initiate Error]', err.response?.data || err.message);
         return res.status(500).json({ success: false, message: err.response?.data?.detail || 'Failed to initiate' });
     }
 };
+
 
 // ─── GET /v2/payments/khalti/v1-widget ──────────────────────────────────────
 export const khaltiWidget = async (req, res) => {
@@ -179,14 +206,16 @@ export const khaltiWidget = async (req, res) => {
 };
 
 // ─── POST /v2/payments/khalti/verify ─────────────────────────────────────────
-// This can be called from frontend to manually verify a pidx
+// ✅ FIXED: Booking is created HERE, only after Khalti confirms payment.
+// Frontend must pass back the bookingIntent data from the initiate response.
 export const verifyKhalti = async (req, res) => {
     try {
-        const { pidx, bookingId: bodyBookingId } = req.body;
+        const { pidx, bookingIntent } = req.body;
 
         if (!pidx) return res.status(400).json({ success: false, message: 'pidx is required' });
+        if (!bookingIntent) return res.status(400).json({ success: false, message: 'bookingIntent is required' });
 
-        // Lookup Payment Status
+        // 1. Confirm payment status with Khalti
         const response = await axios.post(
             `${KHALTI_BASE}/epayment/lookup/`,
             { pidx },
@@ -201,52 +230,58 @@ export const verifyKhalti = async (req, res) => {
         const data = response.data;
         console.log('[Khalti Verify Lookup]', data);
 
-        if (data.status !== "Completed") {
-            return res.status(400).json({ success: false, message: `Payment Status: ${data.status}` });
+        if (data.status !== 'Completed') {
+            return res.status(400).json({ success: false, message: `Payment not completed. Status: ${data.status}` });
         }
 
-        const bookingId = data.purchase_order_id || bodyBookingId;
-
-        // 🛡️ SECURITY 1: Find existing booking and prevent duplicate payment
-        const booking = await Booking.findById(bookingId);
-        if (!booking) {
-            return res.status(404).json({ success: false, message: 'Booking not found' });
-        }
-        if (booking.payment_status === 'paid') {
-            return res.json({ success: true, message: 'Payment already processed', transactionId: pidx });
-        }
-
-        // 🛡️ SECURITY 2: Verify Amount matches
-        if (data.total_amount < (booking.total_price * 100)) {
+        // 2. ✅ Amount verification
+        const expectedPaisa = Math.round(bookingIntent.amount * 100);
+        if (data.total_amount < expectedPaisa) {
             return res.status(400).json({ success: false, message: 'Payment amount is insufficient.' });
         }
 
-        // Mark as paid
-        const updatedBooking = await Booking.findOneAndUpdate(
-            { _id: bookingId, payment_status: { $ne: 'paid' } },
-            {
-                payment_status: 'paid',
-                payment_method: 'khalti',
-                transaction_id: pidx,
-            },
-            { new: true }
-        )
+        // 3. ✅ Idempotency: check if booking was already created for this pidx
+        const existingBooking = await Booking.findOne({ transaction_id: pidx }).lean();
+        if (existingBooking) {
+            return res.json({
+                success: true,
+                message: 'Payment already processed',
+                bookingId: existingBooking._id,
+                transactionId: pidx
+            });
+        }
+
+        // 4. ✅ Create booking ONLY NOW, after payment is confirmed
+        let booking;
+        try {
+            booking = await createConfirmedBooking(req.user._id, bookingIntent, pidx);
+        } catch (bookingErr) {
+            // Handle duplicate slot error gracefully
+            if (bookingErr.statusCode === 409 || bookingErr.code === 11000) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'This time slot was just booked by someone else. Please choose another slot.'
+                });
+            }
+            throw bookingErr;
+        }
+
+        // 5. Populate and notify
+        const populatedBooking = await Booking.findById(booking._id)
             .populate('customer', 'username phone')
             .populate('barber', 'username profile_image')
             .populate('service', 'name price');
 
-        if (!updatedBooking) {
-            return res.status(400).json({ success: false, message: 'Concurrent payment processing detected.' });
-        }
-
-        // Send booking notification
         const io = req.app.get('io');
-        await sendNewBookingNotification(updatedBooking, io);
+        if (populatedBooking && io) {
+            await sendNewBookingNotification(populatedBooking, io);
+        }
 
         return res.json({
             success: true,
             transactionId: pidx,
-            message: 'Payment verified successfully'
+            bookingId: booking._id,
+            message: 'Payment verified and booking confirmed!'
         });
     } catch (err) {
         console.error('[Khalti Verify Error]', err.response?.data || err.message);
@@ -257,8 +292,10 @@ export const verifyKhalti = async (req, res) => {
     }
 };
 
+
 // ─── GET /v2/payments/khalti/callback ────────────────────────────────────────
-// Khalti redirects here after payment
+// Khalti redirects here after payment (web browser redirect — used for web only)
+// ✅ NOTE: For React Native, verifyKhalti (POST) is the canonical endpoint.
 export const khaltiCallback = async (req, res) => {
     try {
         const { pidx, status, purchase_order_id, transaction_id } = req.query;
@@ -293,24 +330,10 @@ export const khaltiCallback = async (req, res) => {
         const result = lookupRes.data;
 
         if (result.status === 'Completed') {
-            // Find if it was a top-up or a booking
-            const booking = await Booking.findById(purchase_order_id);
-            if (booking) {
-                if (booking.payment_status !== 'paid') {
-                    booking.payment_status = 'paid';
-                    booking.transaction_id = pidx;
-                    await booking.save();
-
-                    // Optional: Trigger socket notification
-                    const io = req.app.get('io');
-                    const updatedBooking = await Booking.findById(purchase_order_id)
-                        .populate('customer', 'username phone')
-                        .populate('barber', 'username profile_image')
-                        .populate('service', 'name price');
-                    await sendNewBookingNotification(updatedBooking, io);
-                }
-            } else {
-                // Check if it's a Top-up transaction
+            // ✅ Idempotency: check if booking already created for this pidx
+            const existingBooking = await Booking.findOne({ transaction_id: pidx }).lean();
+            if (!existingBooking) {
+                // Check if it's a wallet top-up transaction
                 const transaction = await Transaction.findById(purchase_order_id);
                 if (transaction && transaction.status !== 'completed') {
                     transaction.status = 'completed';
@@ -321,6 +344,8 @@ export const khaltiCallback = async (req, res) => {
                     user.wallet_balance = (user.wallet_balance || 0) + transaction.amount;
                     await user.save();
                 }
+                // ✅ Note: For bookings via React Native, verifyKhalti (POST) handles creation.
+                // The callback is primarily a browser redirect confirmation page.
             }
 
             return res.send(`
@@ -332,10 +357,7 @@ export const khaltiCallback = async (req, res) => {
                         <button onclick="window.close()" style="margin-top:20px;padding:10px 20px;border:none;background:#5c2d91;color:white;border-radius:8px;cursor:pointer">Back to App</button>
                     </div>
                     <script>
-                        // If in WebView, some might need to communicate back
-                        setTimeout(() => {
-                           // Try to close or redirect if needed
-                        }, 3000);
+                        setTimeout(() => { /* close or redirect if needed */ }, 3000);
                     </script>
                 </body>
                 </html>
@@ -348,6 +370,7 @@ export const khaltiCallback = async (req, res) => {
         res.status(500).send("Error verifying payment");
     }
 };
+
 
 // ─── WALLET TOP-UP ──────────────────────────────────────────────────────────
 

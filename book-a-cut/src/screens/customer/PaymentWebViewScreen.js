@@ -13,11 +13,11 @@ import { verifyKhaltiPayment, verifyKhaltiTopUp } from '../../services/api';
 export default function PaymentWebViewScreen({ navigation, route }) {
     const { theme } = useTheme();
     const {
-        paymentUrl,       
-        gateway,          
-        pidx,             
-        bookingId,
-        transactionId, // for top-up
+        paymentUrl,
+        gateway,
+        pidx,
+        bookingIntent,    // ✅ booking data — booking is created AFTER payment verification
+        transactionId,    // for top-up
         amount,
         type = 'booking', // 'booking' or 'topup'
         onSuccessRoute = 'BookingSuccess',
@@ -66,9 +66,9 @@ export default function PaymentWebViewScreen({ navigation, route }) {
                 }
             } catch (e) { /* use original pidx */ }
 
-            const result = type === 'topup' 
+            const result = type === 'topup'
                 ? await verifyKhaltiTopUp(returnedPidx, transactionId)
-                : await verifyKhaltiPayment(returnedPidx, bookingId);
+                : await verifyKhaltiPayment(returnedPidx, bookingIntent);
 
             if (result.success) {
                 Alert.alert('Payment Successful! 🎉', type === 'topup' ? 'Your wallet has been topped up.' : 'Your booking has been confirmed and paid.');

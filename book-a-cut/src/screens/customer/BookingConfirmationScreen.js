@@ -69,6 +69,8 @@ export default function BookingConfirmationScreen({ navigation, route }) {
     const [travelCharge, setTravelCharge] = useState(0);
     const [distanceKm, setDistanceKm] = useState(null);
     const [paymentLoading, setPaymentLoading] = useState(false);
+    // ✅ Tracks a server-side "slot already booked" error
+    const [slotBookedError, setSlotBookedError] = useState(false);
 
     const displayDate = formatDate(date);
     const servicePrice = service?.price || 0;
@@ -132,6 +134,7 @@ export default function BookingConfirmationScreen({ navigation, route }) {
             return;
         }
 
+        setSlotBookedError(false);
         setPaymentLoading(true);
         try {
             const result = await initiateKhaltiPayment({
@@ -146,20 +149,24 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                 customerLng: serviceType === 'home' ? customerLng : null,
                 travelCharge: serviceType === 'home' ? travelCharge : 0,
                 amount: totalPrice,
-                customerName: 'Customer', // Would come from token or state in a full app
-                customerEmail: '',
-                customerPhone: '',
             });
 
             if (result.success) {
+                // ✅ bookingIntent comes back from the updated backend initiate endpoint
+                // Pass it along so verifyKhaltiPayment can create the booking after payment
+                const bookingIntentToPass = result.bookingIntent || {
+                    barberId, serviceId: service?._id, date, timeSlot,
+                    serviceType, customerAddress, notes, amount: totalPrice,
+                };
+
                 navigation.navigate('PaymentWebView', {
                     paymentUrl: result.paymentUrl,
                     gateway: 'khalti',
                     pidx: result.pidx,
-                    bookingId: result.bookingId,
+                    bookingIntent: bookingIntentToPass, // ✅ pass instead of bookingId
                     amount: totalPrice,
                     onSuccessRoute: 'BookingSuccess',
-                    successParams: { 
+                    successParams: {
                         barberId, barberName, barberImage: barber?.user?.profile_image || '',
                         serviceName: service?.name, date: displayDate, time: timeSlot,
                         price: totalPrice, serviceType, customerLat, customerLng, barberLat, barberLng,
@@ -167,10 +174,21 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                     },
                 });
             } else {
-                Alert.alert('Error', result.message || 'Could not initiate Khalti payment.');
+                // ✅ Handle slot already booked (409) from initiate
+                const msg = result.message || '';
+                if (msg.toLowerCase().includes('already booked') || result.statusCode === 409) {
+                    setSlotBookedError(true);
+                } else {
+                    Alert.alert('Error', msg || 'Could not initiate Khalti payment.');
+                }
             }
         } catch (e) {
-            Alert.alert('Error', e.message || 'Payment initiation failed.');
+            const msg = e.message || '';
+            if (msg.toLowerCase().includes('already booked')) {
+                setSlotBookedError(true);
+            } else {
+                Alert.alert('Error', msg || 'Payment initiation failed.');
+            }
         } finally {
             setPaymentLoading(false);
         }
@@ -179,7 +197,7 @@ export default function BookingConfirmationScreen({ navigation, route }) {
 
 
     const handleConfirm = async () => {
-        // ✅ FIX 1: Block past time booking
+        // ✅ Block past time booking
         if (!isTimeValid()) {
             Alert.alert(
                 'Invalid Time',
@@ -189,6 +207,7 @@ export default function BookingConfirmationScreen({ navigation, route }) {
             return;
         }
 
+        setSlotBookedError(false);
         setLoading(true);
 
         try {
@@ -202,7 +221,7 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                 notes,
                 customerLat: serviceType === 'home' ? customerLat : null,
                 customerLng: serviceType === 'home' ? customerLng : null,
-                // ✅ FIX 2: Send travel charge to backend
+                // ✅ Send travel charge to backend
                 travelCharge: serviceType === 'home' ? travelCharge : 0,
                 totalPrice,
             };
@@ -227,23 +246,35 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                     barberAddress: barber?.location?.address || barber?.location?.city || '',
                 });
             } else {
-                Alert.alert('Booking Failed', result.message || 'Something went wrong.');
+                // ✅ Backend returned success:false with a message
+                const msg = result.message || '';
+                if (msg.toLowerCase().includes('already booked')) {
+                    setSlotBookedError(true);
+                } else {
+                    Alert.alert('Booking Failed', msg || 'Something went wrong.');
+                }
             }
         } catch (error) {
-            Alert.alert(
-                'Booking Failed',
-                error.message || 'Booking failed. Please try again.',
-                [
-                    { text: 'Try Another Time', onPress: () => navigation.goBack() },
-                    { text: 'OK' },
-                ]
-            );
+            const msg = error.message || '';
+            // ✅ 409 / duplicate booking — stay on screen, show inline error
+            if (msg.toLowerCase().includes('already booked') || error.statusCode === 409) {
+                setSlotBookedError(true);
+            } else {
+                Alert.alert(
+                    'Booking Failed',
+                    msg || 'Booking failed. Please try again.',
+                    [
+                        { text: 'Try Another Time', onPress: () => navigation.goBack() },
+                        { text: 'OK' },
+                    ]
+                );
+            }
         } finally {
             setLoading(false);
         }
     };
 
-    // ✅ FIX 1: Show warning if time already passed
+    // ✅ Show warning if time already passed
     const timeWarning = !isTimeValid();
 
     return (
@@ -258,7 +289,24 @@ export default function BookingConfirmationScreen({ navigation, route }) {
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
-                {/* ✅ FIX 1: Past time warning banner */}
+                {/* ✅ Slot already booked error banner */}
+                {slotBookedError && (
+                    <View style={styles.slotBookedBanner}>
+                        <Text style={styles.slotBookedBannerIcon}>🚫</Text>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.slotBookedBannerTitle}>Time Slot Already Booked</Text>
+                            <Text style={styles.slotBookedBannerMsg}>
+                                This time slot ({timeSlot}) is already taken. Please go back and select a different time.
+                            </Text>
+                        </View>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.slotBookedBannerBtn}>
+                            <Text style={styles.slotBookedBannerBtnText}>Change
+Time</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* ✅ Past time warning banner */}
                 {timeWarning && (
                     <View style={styles.warningBox}>
                         <Text style={styles.warningText}>
@@ -449,6 +497,22 @@ const styles = StyleSheet.create({
     warningText: { color: '#856404', fontSize: 13, lineHeight: 20, marginBottom: 10 },
     warningBtn: { backgroundColor: '#FFC107', borderRadius: 8, padding: 10, alignItems: 'center' },
     warningBtnText: { color: '#333', fontWeight: 'bold' },
+
+    // ✅ Slot already booked banner styles
+    slotBookedBanner: {
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: '#FFEBEE', borderRadius: 12,
+        padding: 14, marginBottom: 16,
+        borderWidth: 1, borderColor: '#FFCDD2', gap: 10,
+    },
+    slotBookedBannerIcon: { fontSize: 22 },
+    slotBookedBannerTitle: { color: '#B71C1C', fontWeight: '700', fontSize: 14, marginBottom: 4 },
+    slotBookedBannerMsg: { color: '#C62828', fontSize: 12, lineHeight: 17 },
+    slotBookedBannerBtn: {
+        backgroundColor: '#EF5350', borderRadius: 8,
+        paddingVertical: 8, paddingHorizontal: 10, alignItems: 'center',
+    },
+    slotBookedBannerBtnText: { color: '#FFF', fontWeight: '700', fontSize: 11, textAlign: 'center' },
 
     barberCard: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, padding: 16, marginBottom: 16, elevation: 3 },
     barberAvatar: { width: 64, height: 64, borderRadius: 32, marginRight: 14 },

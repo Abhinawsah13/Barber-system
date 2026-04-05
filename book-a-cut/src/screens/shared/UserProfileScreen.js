@@ -178,8 +178,6 @@ export default function UserProfileScreen({ navigation, route }) {
                     <Text style={[styles.logoutText, { color: theme.error }]}>↪ Log Out</Text>
                 </TouchableOpacity>
 
-                <Text style={[styles.versionText, { color: theme.textMuted }]}>Version 2.4.0</Text>
-
                 <View style={{ height: 80 }} />
 
             </ScrollView>
@@ -349,10 +347,6 @@ const styles = StyleSheet.create({
     logoutText: {
         fontSize: 16,
         fontWeight: 'bold',
-    },
-    versionText: {
-        textAlign: 'center',
-        fontSize: 12,
     },
     bottomNav: {
         position: 'absolute',

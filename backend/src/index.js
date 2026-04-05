@@ -33,6 +33,9 @@ if (envResult.error) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ✅ Security: Remove Express fingerprint header
+app.disable('x-powered-by');
+
 // Connect to MongoDB
 connectDB();
 
@@ -154,7 +157,7 @@ io.on('connection', (socket) => {
         });
     });
 
-    // ── ✅ NEW: Customer stopped sharing location ─────────────
+
     socket.on('customer-location-stopped', (data) => {
         const { bookingId, barberId } = data;
         console.log(`[LiveLocation] Customer stopped sharing for booking ${bookingId}`);

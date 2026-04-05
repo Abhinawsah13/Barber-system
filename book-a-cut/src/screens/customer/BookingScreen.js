@@ -93,6 +93,8 @@ export default function BookingScreen({ navigation, route }) {
     const [selectedTime, setSelectedTime] = useState(null);
     const [availableSlots, setAvailableSlots] = useState([]);
     const [slotsLoading, setSlotsLoading] = useState(false);
+    // ✅ Tracks whether the selected slot is already booked (show error, keep slot visible)
+    const [bookedSlotError, setBookedSlotError] = useState(false);
 
     useEffect(() => {
         if (barberId && selectedService?._id && selectedDate) {
@@ -103,6 +105,7 @@ export default function BookingScreen({ navigation, route }) {
     const fetchSlots = async () => {
         try {
             setSlotsLoading(true);
+            setBookedSlotError(false); // reset error on re-fetch
             const dateStr = selectedDate.fullDate.toISOString().split('T')[0];
             const result = await getAvailableSlots({
                 barberId,
@@ -144,6 +147,15 @@ export default function BookingScreen({ navigation, route }) {
             return;
         }
 
+        // ✅ Block booking if the selected slot is already booked
+        if (bookedSlotError) {
+            Alert.alert(
+                'Slot Already Booked',
+                'This time slot is already booked. Please select a different time.',
+            );
+            return;
+        }
+
         const now = new Date();
         const selectedDateTime = new Date(`${selectedDate.fullDate.toDateString()} ${selectedTime}`);
 
@@ -153,7 +165,7 @@ export default function BookingScreen({ navigation, route }) {
         }
 
         navigation.navigate('BookingConfirmation', {
-            service: selectedService, 
+            service: selectedService,
             barber: barber || null,
             barberId: barberId,
             barberName: mockBarberName,
@@ -273,31 +285,55 @@ export default function BookingScreen({ navigation, route }) {
                                 const slotDateTime = new Date(`${selectedDate.fullDate.toDateString()} ${slot.time}`);
                                 const isPast = slotDateTime <= now;
 
-                                const isBooked = !slot.available || isPast;
+                                // ✅ isBooked = slot not available per API (already taken by someone)
+                                // isPast = time has passed — these remain permanently disabled
+                                const isBooked = !slot.available && !isPast;
+
                                 return (
                                     <TouchableOpacity
                                         key={i}
                                         style={[
                                             styles.mockupTimeSlot,
-                                            isSelected && styles.mockupTimeSlotSelected,
-                                            isBooked && styles.mockupTimeSlotBooked
+                                            isSelected && !isBooked && styles.mockupTimeSlotSelected,
+                                            isBooked && styles.mockupTimeSlotBooked,
+                                            isPast && styles.mockupTimeSlotPast,
                                         ]}
-                                        onPress={() => setSelectedTime(slot.time)}
-                                        activeOpacity={0.8}
-                                        disabled={isBooked}
+                                        onPress={() => {
+                                            if (isPast) return; // hard block for past times
+                                            setSelectedTime(slot.time);
+                                            // ✅ Show error banner inline if slot is already booked
+                                            setBookedSlotError(isBooked);
+                                        }}
+                                        activeOpacity={isPast ? 1 : 0.8}
+                                        disabled={isPast}
                                     >
                                         <Text style={[
                                             styles.mockupTimeText,
-                                            isSelected && styles.mockupTimeTextSelected,
-                                            isBooked && styles.mockupTimeTextBooked
+                                            isSelected && !isBooked && styles.mockupTimeTextSelected,
+                                            isBooked && styles.mockupTimeTextBooked,
+                                            isPast && styles.mockupTimeTextPast,
                                         ]}>
                                             {slot.time}
                                         </Text>
+                                        {/* ✅ Booked indicator badge */}
+                                        {isBooked && (
+                                            <Text style={styles.mockupTimeSlotBadge}>Booked</Text>
+                                        )}
                                     </TouchableOpacity>
                                 );
                             })
                         )}
                     </View>
+
+                    {/* ✅ Inline error banner — shown when user selects an already-booked slot */}
+                    {bookedSlotError && (
+                        <View style={styles.slotErrorBanner}>
+                            <Text style={styles.slotErrorIcon}>🚫</Text>
+                            <Text style={styles.slotErrorText}>
+                                This time slot is already booked. Please select another time.
+                            </Text>
+                        </View>
+                    )}
 
                     <View style={styles.legendRow}>
                         <View style={styles.legendItem}>
@@ -320,17 +356,17 @@ export default function BookingScreen({ navigation, route }) {
                 <TouchableOpacity
                     style={[
                         styles.mockupConfirmBtn,
-                        { backgroundColor: canBook ? '#C2B6D4' : '#E0E0E0' }
+                        { backgroundColor: (canBook && !bookedSlotError) ? '#C2B6D4' : '#E0E0E0' }
                     ]}
                     onPress={handleBookNow}
-                    disabled={loading || !canBook}
+                    disabled={loading || !canBook || bookedSlotError}
                     activeOpacity={0.85}
                 >
                     {loading ? (
                         <ActivityIndicator color="#FFF" />
                     ) : (
-                        <Text style={[styles.mockupConfirmBtnText, { color: canBook ? '#FFF' : '#A0A0A0' }]}>
-                            {canBook ? `${t('confirm_booking')} →` : t('select_service_time')}
+                        <Text style={[styles.mockupConfirmBtnText, { color: (canBook && !bookedSlotError) ? '#FFF' : '#A0A0A0' }]}>
+                            {canBook && !bookedSlotError ? `${t('confirm_booking')} →` : t('select_service_time')}
                         </Text>
                     )}
                 </TouchableOpacity>
@@ -442,7 +478,49 @@ const styles = StyleSheet.create({
     },
     mockupTimeText: { fontSize: 13, fontWeight: '600', color: '#333' },
     mockupTimeTextSelected: { color: '#FFF' },
-    mockupTimeTextBooked: { color: '#BDBDBD', textDecorationLine: 'line-through' },
+    mockupTimeTextBooked: { color: '#BDBDBD' },
+    mockupTimeTextPast: { color: '#C8C8C8', textDecorationLine: 'line-through' },
+
+    // ✅ Booked slot styles — distinct from past/selected
+    mockupTimeSlotBooked: {
+        backgroundColor: '#FFF3F3',
+        borderColor: '#FFCDD2',
+        borderStyle: 'dashed',
+    },
+    mockupTimeSlotPast: {
+        backgroundColor: '#F5F5F5',
+        borderColor: '#EAEAEA',
+        opacity: 0.5,
+    },
+    mockupTimeSlotBadge: {
+        fontSize: 9,
+        color: '#EF5350',
+        fontWeight: '700',
+        marginTop: 2,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+
+    // ✅ Inline error banner for booked slot selection
+    slotErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFEBEE',
+        borderRadius: 10,
+        padding: 12,
+        marginTop: 8,
+        borderWidth: 1,
+        borderColor: '#FFCDD2',
+        gap: 8,
+    },
+    slotErrorIcon: { fontSize: 16 },
+    slotErrorText: {
+        flex: 1,
+        color: '#C62828',
+        fontSize: 13,
+        fontWeight: '600',
+        lineHeight: 18,
+    },
     
     // Legend
     legendRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },

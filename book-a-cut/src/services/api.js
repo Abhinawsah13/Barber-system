@@ -1189,18 +1189,20 @@ export const initiateKhaltiPayment = async (data) => {
     }
 };
 
-export const verifyKhaltiPayment = async (pidx, bookingId) => {
+// \u2705 UPDATED: Backend now creates booking inside verify (after payment confirmed).
+// Pass bookingIntent (the full booking data) instead of bookingId.
+export const verifyKhaltiPayment = async (pidx, bookingIntent) => {
     try {
         const token = await getToken();
         const url = `${BASE_URL}/v2/payments/khalti/verify`;
         const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: buildHeaders(token),
-            body: JSON.stringify({ pidx, bookingId }),
+            body: JSON.stringify({ pidx, bookingIntent }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.message);
-        return result; // { success, transactionId }
+        return result; // { success, transactionId, bookingId }
     } catch (error) {
         throw error;
     }
