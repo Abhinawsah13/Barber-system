@@ -13,38 +13,39 @@ The project is divided into two main parts:
 ## 🚀 Features
 
 ### For Customers
-- Browse available barbers.
-- Filter barbers by service mode (Salon or Home).
-- View barber profiles, services, pricing, and reviews.
-- Book appointments (Select Date and Time).
-- Rate and review previous haircuts and services.
-- Real-time updates and notifications.
+- **AI-Powered Assistance**: Personalized style advice and booking help via the integrated 🤖 **AI Chatbot**.
+- **Secure Payments**: Integrated **Khalti Payment Gateway** for seamless digital transactions and wallet top-ups.
+- **Service Flexibility**: Browse and book both **Salon** and **Home Services** with real-time tracking.
+- **Review System**: Rate and review services (exclusive to booking customers with verified completion).
+- **Smart Filtering**: Advanced search and filtering by service type, pricing, and barber experience.
+- **Real-time Notifications**: Instant updates on booking status, payment confirmation, and barber arrivals.
 
 ### For Barbers
-- Manage profile information, bio, and working hours.
-- Manage services offered and pricing.
-- Specify supported service modes (Salon only, Home only, or Both).
-- View and manage upcoming appointments.
+- **Dynamic Profile Management**: Manage bio, portfolio, and working hours.
+- **Service Customization**: Define custom services, durations, and pricing for different service modes.
+- **Advanced Dashboard**: Track daily earnings, upcoming schedule, and active bookings.
+- **Service Mode Toggle**: Real-time control over "On the Way" status and GPS-based navigation to customers.
+- **Subscription Plans**: Access to premium features and lower commission rates via the Subscription module.
 
 ---
 
 ## 🛠️ Tech Stack
 
 **Frontend:**
-- [React Native](https://reactnative.dev/)
-- [Expo](https://expo.dev/)
+- [React Native](https://reactnative.dev/) & [Expo](https://expo.dev/)
 - [React Navigation](https://reactnavigation.org/)
-- UI rendering and safe area handling through `react-native-safe-area-context` and `react-native-reanimated`.
-- Socket.IO-client for real-time reactivity.
-- Map viewing and interactions with `react-native-maps`.
+- **State Management**: React Context API
+- **Real-time**: [Socket.IO-client](https://socket.io/)
+- **Payments**: [Khalti SDK/WebView Integration](https://khalti.com/)
+- **Maps**: `react-native-maps` & Expo Location for real-time tracking.
 
 **Backend:**
 - [Node.js](https://nodejs.org/) & [Express](https://expressjs.com/)
-- [MongoDB](https://www.mongodb.com/) & Mongoose for Data Modeling.
-- Socket.IO for real-time socket connections.
-- JWT (`jsonwebtoken`) for authentication and authorization.
-- `bcryptjs` for secure password hashing.
-- `nodemailer` for email communications.
+- [MongoDB](https://www.mongodb.com/) & [Mongoose](https://mongoosejs.com/)
+- **Real-time**: [Socket.IO](https://socket.io/) for bidirectional communication.
+- **AI/ML**: Integration with a dedicated **Chatbot Engine** (Node.js/Python).
+- **Auth**: JWT (JSON Web Tokens) & Bcrypt for secure access control.
+- **Notifications**: Integrated notification service via `nodemailer` and custom socket events.
 
 ---
 
