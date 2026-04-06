@@ -150,32 +150,51 @@ router.get('/search', async (req, res) => {
     }
 });
 
-// 🔥 NEW: Toggle online/offline (BARBER DASHBOARD)
-router.put('/toggle-online', authenticateToken, requireRole('barber'), async (req, res) => {
+// NOTE: Toggle online/offline route is defined below (after /:id) to avoid route conflicts.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/barbers/me — barber fetches their OWN profile (auth required)
+// Uses req.user._id so no ID parameter is needed
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/me', authenticateToken, requireRole('barber'), async (req, res) => {
     try {
-        const { lat, lng, address } = req.body;
-        const profile = await BarberProfile.findOne({ user: req.user._id });
+        const userId = req.user._id;
+        console.log('[GET /barbers/me] User ID:', userId);
+
+        let profile = await BarberProfile.findOne({ user: userId })
+            .populate('user', 'username email profile_image phone');
+
+        console.log('[GET /barbers/me] Profile:', profile ? profile._id : 'NOT FOUND');
 
         if (!profile) {
-            return res.status(404).json({ success: false, message: 'Profile not found' });
+            // Auto-create a minimal profile with valid location so Mongo 2dsphere index doesn't crash!
+            profile = new BarberProfile({
+                user: userId,
+                services: [],
+                experience_years: 0,
+                isOnline: false,
+                location: {
+                    type: 'Point',
+                    coordinates: [85.3240, 27.7172] // Default Kathmandu coords
+                }
+            });
+            await profile.save();
+            await profile.populate('user', 'username email profile_image phone');
+            console.log('[GET /barbers/me] Auto-created profile:', profile._id);
         }
 
-        profile.isOnline = req.body.isOnline;
-        
-        if (lat && lng) {
-            // Keep existing location details, just update coordinates
-            profile.location = {
-                ...profile.location,
-                type: 'Point',
-                coordinates: [parseFloat(lng), parseFloat(lat)]
-            };
-        }
+        const services = await Service.find({ barber: userId, is_active: true }).lean();
 
-        await profile.save();
-
-        res.json({ success: true, profile });
+        res.json({
+            success: true,
+            data: {
+                ...profile.toObject(),
+                offeredServices: services
+            }
+        });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        console.error('[GET /barbers/me] Error:', error.message, error.stack);
+        res.status(500).json({ success: false, message: error.message || 'Internal server error' });
     }
 });
 
@@ -262,6 +281,9 @@ router.get('/:id', async (req, res) => {
     try {
         const idParam = req.params.id;
 
+        // ── DEBUG LOGS ─────────────────────────────────────────────────────────
+        console.log('[getBarberById] Looking up ID:', idParam);
+
         // Try 1: treat the ID as the User's _id (the intended use case)
         let profile = await BarberProfile.findOne({ user: idParam })
             .populate('user', 'username email profile_image phone');
@@ -272,6 +294,8 @@ router.get('/:id', async (req, res) => {
             profile = await BarberProfile.findById(idParam)
                 .populate('user', 'username email profile_image phone');
         }
+
+        console.log('[getBarberById] Profile found:', profile ? profile._id : 'NOT FOUND');
 
         if (!profile) {
             return res.status(404).json({
@@ -461,45 +485,60 @@ router.put('/toggle-online', authenticateToken, requireRole('barber'), async (re
         const userId = req.user._id;
         const { isOnline, lat, lng } = req.body;
 
+        // ── DEBUG LOGS ─────────────────────────────────────────────────────────
+        console.log('[toggle-online] User ID:', userId);
+        console.log('[toggle-online] Request body:', { isOnline, lat, lng });
+
         // Find or create barber profile
         let profile = await BarberProfile.findOne({ user: userId });
+        console.log('[toggle-online] Barber profile found:', profile ? profile._id : 'NOT FOUND — will auto-create');
 
         if (!profile) {
-            // Create a basic profile if it doesn't exist
+            // Auto-create a basic profile so the barber can go online immediately
             profile = new BarberProfile({
                 user: userId,
                 services: [],
                 experience_years: 0,
-                isOnline: isOnline || false,
+                isOnline: isOnline !== undefined ? isOnline : false,
                 location: {
                     type: 'Point',
-                    coordinates: [lng || 85.3240, lat || 27.7172]
+                    coordinates: [parseFloat(lng) || 85.3240, parseFloat(lat) || 27.7172]
                 }
             });
         } else {
-            profile.isOnline = isOnline;
+            profile.isOnline = isOnline !== undefined ? isOnline : !profile.isOnline;
             if (lat && lng) {
                 profile.location = {
-                    ...profile.location,
+                    ...(profile.location ? profile.location.toObject() : {}),
                     type: 'Point',
-                    coordinates: [lng, lat]
+                    coordinates: [parseFloat(lng), parseFloat(lat)]
+                };
+            } else if (!profile.location || !profile.location.coordinates || profile.location.coordinates.length !== 2) {
+                // Ensure a valid location exists to satisfy 2dsphere index!
+                profile.location = {
+                    ...(profile.location ? profile.location.toObject() : {}),
+                    type: 'Point',
+                    coordinates: [85.3240, 27.7172]
                 };
             }
         }
 
         await profile.save();
 
+        console.log('[toggle-online] Status saved. isOnline:', profile.isOnline);
+
         res.json({
             success: true,
-            message: `Barber is now ${isOnline ? 'online' : 'offline'}`,
+            message: `Barber is now ${profile.isOnline ? 'online' : 'offline'}`,
+            isOnline: profile.isOnline,
             data: profile
         });
 
     } catch (error) {
-        console.error('Toggle online error:', error);
+        console.error('[toggle-online] Error:', error.message, error.stack);
         res.status(500).json({
             success: false,
-            message: 'Failed to update online status'
+            message: error.message || 'Failed to update online status'
         });
     }
 });

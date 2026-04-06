@@ -167,16 +167,19 @@ export default function RateBarberScreen({ navigation, route }) {
     const [textFocused, setTextFocused] = useState(false);
     const [submitError, setSubmitError] = useState('');
     const [userRole, setUserRole] = useState(null);
-
     React.useEffect(() => {
-        const checkRole = async () => {
+        const fetchUser = async () => {
             const userData = await getUserData();
-            setUserRole(userData?.user_type);
-            if (userData?.user_type === 'barber') {
-                setSubmitError('System Restricted: Barbers cannot submit reviews.');
+            const role = userData?.user_type;
+            setUserRole(role);
+
+            // ⚠️ SECURITY: If a barber somehow gets here, send them back
+            if (role === 'barber') {
+                console.log('[RateBarber] Barber attempted to access review screen. Redirecting...');
+                navigation.replace('BarberHome');
             }
         };
-        checkRole();
+        fetchUser();
     }, []);
 
     const setCat = (key) => (val) => setCatRatings(prev => ({ ...prev, [key]: val }));
@@ -227,7 +230,6 @@ export default function RateBarberScreen({ navigation, route }) {
         return (
             <SafeAreaView style={[styles.container, { backgroundColor: CREAM }]}>
                 <ScrollView contentContainerStyle={styles.successScroll} showsVerticalScrollIndicator={false}>
-                    <Text style={styles.successEmoji}>🎉</Text>
 
                     <View style={styles.successBadge}>
                         <Text style={styles.successBadgeText}>✓ Review Submitted</Text>
@@ -252,10 +254,13 @@ export default function RateBarberScreen({ navigation, route }) {
 
                     <TouchableOpacity
                         style={styles.primaryBtn}
-                        onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Home' }] })}
+                        onPress={() => {
+                            const target = userRole === 'barber' ? 'BarberHome' : 'Home';
+                            navigation.reset({ index: 0, routes: [{ name: target }] });
+                        }}
                         activeOpacity={0.85}
                     >
-                        <Text style={styles.primaryBtnText}>← Back to My Bookings</Text>
+                        <Text style={styles.primaryBtnText}>← Back to Home</Text>
                     </TouchableOpacity>
 
                     <View style={{ height: 40 }} />

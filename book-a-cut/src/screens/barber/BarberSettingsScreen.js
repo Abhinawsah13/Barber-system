@@ -141,12 +141,6 @@ export default function BarberSettingsScreen({ navigation }) {
                         subtitle={t('terms_privacy_subtitle')}
                         onPress={() => navigation.navigate('TermsPrivacy')}
                     />
-                    <SettingsItem
-                        icon="ℹ️"
-                        title={t('about_app')}
-                        subtitle={`${t('version')} 1.0.0`}
-                        showArrow={false}
-                    />
                 </SettingsSection>
 
                 {/* Logout */}

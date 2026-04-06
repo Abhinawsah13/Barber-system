@@ -7,7 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from "../../context/ThemeContext";
 import {
-    updateBarberProfile, getProfile, getBarberById, getBarberRating,
+    updateBarberProfile, getProfile, getBarberById, getMyBarberProfile, getBarberRating,
 } from "../../services/api";
 import StarRating from "../../components/shared/StarRating";
 import { Ionicons } from '@expo/vector-icons';
@@ -87,8 +87,9 @@ export default function BarberEditProfileScreen({ navigation }) {
             setPhone(user.phone || '');
             if (user.profile_image) setProfileImage(user.profile_image);
 
+            // ✅ Use getMyBarberProfile — server resolves profile via JWT token
             const [barber, rating] = await Promise.all([
-                getBarberById(user._id),
+                getMyBarberProfile(),
                 getBarberRating(user._id),
             ]);
 
@@ -247,16 +248,74 @@ export default function BarberEditProfileScreen({ navigation }) {
 
     // ── Save ──────────────────────────────────────────────────────────────────
     const handleSave = async () => {
-        if (!fullName.trim()) { Alert.alert('Error', 'Full name is required'); return; }
+        // ── VALIDATION ─────────────────────────────────────────────────────────
+        if (!phone.trim()) {
+            Alert.alert('Phone Required', 'Please enter your phone number.');
+            return;
+        }
 
         let finalServices = selectedServices.filter(s => s !== 'Others');
         if (selectedServices.includes('Others') && otherService.trim()) {
-            finalServices.push(...otherService.split(',').map(s => s.trim()));
+            finalServices.push(...otherService.split(',').map(s => s.trim()).filter(Boolean));
         }
 
-        if (finalServices.length === 0) { Alert.alert('Error', 'Select at least one service'); return; }
-        if (showSalon && !shopName.trim()) { Alert.alert('Error', 'Shop name / address is required'); return; }
-        if (showHome && !serviceArea.trim()) { Alert.alert('Error', 'Service area is required for Home service'); return; }
+        if (finalServices.length === 0) {
+            Alert.alert('Services Required', 'Please select at least one service you offer.');
+            return;
+        }
+
+        if (expValue === null || expValue === undefined) {
+            Alert.alert('Experience Required', 'Please select your years of experience.');
+            return;
+        }
+
+        const isSalonActive = serviceModeSelection === 'salon' || serviceModeSelection === 'both';
+        const isHomeActive = serviceModeSelection === 'home' || serviceModeSelection === 'both';
+
+        if (isSalonActive && !salonPrice.trim()) {
+            Alert.alert('Price Required', 'Please enter your salon service starting price (Rs).');
+            return;
+        }
+        if (isHomeActive && !homePrice.trim()) {
+            Alert.alert('Price Required', 'Please enter your home service starting price (Rs).');
+            return;
+        }
+
+        if (isSalonActive && (!salonOpen.trim() || !salonClose.trim())) {
+            Alert.alert('Working Hours Required', 'Please enter salon opening and closing times (e.g. 09:00 - 19:00).');
+            return;
+        }
+
+        if (isHomeActive && (!homeOpen.trim() || !homeClose.trim())) {
+            Alert.alert('Working Hours Required', 'Please enter home service opening and closing times.');
+            return;
+        }
+
+        if (isSalonActive && salonOpen >= salonClose) {
+            Alert.alert('Invalid Hours', 'Salon closing time must be after opening time.');
+            return;
+        }
+
+        if (isHomeActive && homeOpen >= homeClose) {
+            Alert.alert('Invalid Hours', 'Home service closing time must be after opening time.');
+            return;
+        }
+
+        if (!fullName.trim()) {
+            Alert.alert('Name Required', 'Please enter your full name.');
+            return;
+        }
+
+        if (isSalonActive && !shopName.trim()) {
+            Alert.alert('Address Required', 'Please enter your shop name / salon address.');
+            return;
+        }
+        if (isHomeActive && !serviceArea.trim()) {
+            Alert.alert('Service Area Required', 'Please specify the area you cover for home service.');
+            return;
+        }
+
+        // ── END VALIDATION ──────────────────────────────────────────────────────
 
         setSaving(true);
         try {
@@ -267,8 +326,8 @@ export default function BarberEditProfileScreen({ navigation }) {
                 bio,
                 experience_years: expValue,
                 serviceModes: {
-                    salon: showSalon,
-                    home: showHome
+                    salon: isSalonActive,
+                    home: isHomeActive
                 },
                 location: {
                     address: shopName,
@@ -281,13 +340,13 @@ export default function BarberEditProfileScreen({ navigation }) {
                         workingDays: salonDays,
                         openTime: salonOpen,
                         closeTime: salonClose,
-                        isActive: salonEnabled
+                        isActive: isSalonActive
                     },
                     home: {
                         workingDays: homeDays,
                         openTime: homeOpen,
                         closeTime: homeClose,
-                        isActive: homeEnabled
+                        isActive: isHomeActive
                     }
                 },
                 pricing: {
@@ -299,7 +358,7 @@ export default function BarberEditProfileScreen({ navigation }) {
                 is_verified_barber: true,
                 subscription_plan: subscriptionPlan,
             });
-            Alert.alert('Success', 'Profile updated successfully!');
+            Alert.alert('✅ Success', 'Profile updated successfully!');
             navigation.goBack();
         } catch (e) {
             Alert.alert('Error', e.message || 'Failed to save profile');
@@ -456,13 +515,13 @@ export default function BarberEditProfileScreen({ navigation }) {
                     {/* PRICING */}
                     <Card theme={theme}>
                         <SectionTitle theme={theme}>Pricing Configuration (Starting Prices)</SectionTitle>
-                        {salonEnabled && (
-                            <View style={{ marginBottom: homeEnabled ? 20 : 0 }}>
+                        {showSalon && (
+                            <View style={{ marginBottom: showHome ? 20 : 0 }}>
                                 <FieldLabel theme={theme}>Salon Service (Rs.)</FieldLabel>
                                 <FieldInput theme={theme} value={salonPrice} onChangeText={setSalonPrice} placeholder="300" keyboardType="numeric" />
                             </View>
                         )}
-                        {homeEnabled && (
+                        {showHome && (
                             <>
                                 <FieldLabel theme={theme}>Home Base Price (Rs.)</FieldLabel>
                                 <FieldInput theme={theme} value={homePrice} onChangeText={setHomePrice} placeholder="500" keyboardType="numeric" />
@@ -472,20 +531,42 @@ export default function BarberEditProfileScreen({ navigation }) {
                         )}
                     </Card>
 
-                    {/* WORKING HOURS (Simplified) */}
+                    {/* WORKING HOURS */}
                     <Card theme={theme}>
                         <SectionTitle theme={theme}>Working Hours</SectionTitle>
-                        <View style={styles.hoursRow}>
-                            <View style={styles.hourBox}>
-                                <Text style={[styles.hourLab, { color: theme.textLight }]}>Opens</Text>
-                                <FieldInput theme={theme} value={salonOpen} onChangeText={setSalonOpen} placeholder="09:00" />
+                        {showSalon && (
+                            <>
+                                <FieldLabel theme={theme}>Salon Hours</FieldLabel>
+                                <View style={styles.hoursRow}>
+                                    <View style={styles.hourBox}>
+                                        <Text style={[styles.hourLab, { color: theme.textLight }]}>Opens</Text>
+                                        <FieldInput theme={theme} value={salonOpen} onChangeText={setSalonOpen} placeholder="09:00" />
+                                    </View>
+                                    <Text style={{ marginTop: 25, color: theme.textLight }}>—</Text>
+                                    <View style={styles.hourBox}>
+                                        <Text style={[styles.hourLab, { color: theme.textLight }]}>Closes</Text>
+                                        <FieldInput theme={theme} value={salonClose} onChangeText={setSalonClose} placeholder="19:00" />
+                                    </View>
+                                </View>
+                            </>
+                        )}
+                        
+                        {showHome && (
+                            <View style={{ marginTop: showSalon ? 15 : 0 }}>
+                                <FieldLabel theme={theme}>Home Service Hours</FieldLabel>
+                                <View style={styles.hoursRow}>
+                                    <View style={styles.hourBox}>
+                                        <Text style={[styles.hourLab, { color: theme.textLight }]}>Opens</Text>
+                                        <FieldInput theme={theme} value={homeOpen} onChangeText={setHomeOpen} placeholder="10:00" />
+                                    </View>
+                                    <Text style={{ marginTop: 25, color: theme.textLight }}>—</Text>
+                                    <View style={styles.hourBox}>
+                                        <Text style={[styles.hourLab, { color: theme.textLight }]}>Closes</Text>
+                                        <FieldInput theme={theme} value={homeClose} onChangeText={setHomeClose} placeholder="18:00" />
+                                    </View>
+                                </View>
                             </View>
-                            <Text style={{ marginTop: 25, color: theme.textLight }}>—</Text>
-                            <View style={styles.hourBox}>
-                                <Text style={[styles.hourLab, { color: theme.textLight }]}>Closes</Text>
-                                <FieldInput theme={theme} value={salonClose} onChangeText={setSalonClose} placeholder="19:00" />
-                            </View>
-                        </View>
+                        )}
                     </Card>
 
                     <TouchableOpacity 

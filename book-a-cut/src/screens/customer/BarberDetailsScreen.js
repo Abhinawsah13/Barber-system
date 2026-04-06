@@ -14,7 +14,11 @@ export default function BarberDetailsScreen({ navigation, route }) {
     const [services, setServices] = useState(initialBarber?.offeredServices || initialBarber?.services || []);
     const [loading, setLoading] = useState(!initialBarber);
     const [activeTab, setActiveTab] = useState('Book');
-    const [selectedService, setSelectedService] = useState(route.params?.service || null);
+
+    // ✅ MULTI-SELECT: array of selected service objects
+    const [selectedServices, setSelectedServices] = useState(
+        route.params?.service?._id ? [route.params.service] : []
+    );
     const getTodayStr = () => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -29,6 +33,14 @@ export default function BarberDetailsScreen({ navigation, route }) {
     const [fetchingReviews, setFetchingReviews] = useState(false);
     const [address, setAddress] = useState("");
     const [addressNotes, setAddressNotes] = useState("");
+
+    // ✅ Computed values
+    const totalServicesPrice = selectedServices.reduce((sum, s) => sum + (s.price || 0), 0);
+    const longestDuration = selectedServices.length > 0
+        ? Math.max(...selectedServices.map(s => s.duration_minutes || 30))
+        : 30;
+    // For slot fetching, use the longest selected service (or fall back to first available service)
+    const primaryService = selectedServices.length > 0 ? selectedServices[0] : null;
 
     useEffect(() => {
         const id = route.params?.barberId || route.params?.barber?._id || route.params?.barber?.user?._id;
@@ -55,34 +67,44 @@ export default function BarberDetailsScreen({ navigation, route }) {
     };
 
     useEffect(() => {
-        if (selectedDate && selectedService) {
+        if (selectedDate && primaryService) {
             fetchSlots(selectedDate);
         }
-    }, [selectedDate, selectedService, selectedServiceType]);
+    }, [selectedDate, selectedServices, selectedServiceType]);
 
+    // When service type changes, filter out services that don't apply
     useEffect(() => {
-        if (selectedService && services.length > 0) {
-            const isAvailable = services.some(s => {
-                const sType = s.serviceType || 'both';
-                return s._id === selectedService._id && (sType === selectedServiceType || sType === 'both');
+        if (selectedServices.length > 0 && services.length > 0) {
+            const filtered = selectedServices.filter(sel => {
+                const sType = sel.serviceType || 'both';
+                return sType === selectedServiceType || sType === 'both';
             });
-            if (!isAvailable) {
-                setSelectedService(null);
+            if (filtered.length !== selectedServices.length) {
+                setSelectedServices(filtered);
                 setSelectedSlot(null);
             }
         }
     }, [selectedServiceType, services]);
 
+    // ✅ Toggle a service in/out of the selection
+    const toggleService = (service) => {
+        setSelectedSlot(null); // slot must be re-selected when services change
+        setSelectedServices(prev => {
+            const exists = prev.some(s => s._id === service._id);
+            return exists ? prev.filter(s => s._id !== service._id) : [...prev, service];
+        });
+    };
+
     const fetchSlots = async (date) => {
         const id = route.params?.barberId || barberData?.user?._id || barberData?._id;
-        if (!id || !selectedService?._id) return;
+        if (!id || !primaryService?._id) return;
 
         setLoadingSlots(true);
         setSelectedSlot(null);
         try {
             const res = await getAvailableSlots({
                 barberId: id,
-                serviceId: selectedService._id,
+                serviceId: primaryService._id,
                 date: date,
                 serviceType: selectedServiceType
             });
@@ -102,7 +124,20 @@ export default function BarberDetailsScreen({ navigation, route }) {
                 // ✅ DEBUG: log location data to confirm field names
                 console.log('Barber location data:', JSON.stringify(data?.location));
                 setBarberData(data);
-                setServices(data.offeredServices || []);
+                
+                const fetchedServices = data.offeredServices || [];
+                setServices(fetchedServices);
+
+                // ✅ Auto-select real service if we only got a mock category name from Chatbot/Selection screen
+                if (route.params?.service && !route.params?.service?._id) {
+                    const match = fetchedServices.find(s => 
+                        s.name.toLowerCase() === route.params.service.name?.toLowerCase() &&
+                        s.isActive !== false
+                    );
+                    if (match && selectedServices.length === 0) {
+                        setSelectedServices([match]);
+                    }
+                }
             }
         } catch (error) {
             console.error(error);
@@ -145,8 +180,12 @@ export default function BarberDetailsScreen({ navigation, route }) {
     const shopName = barberData?.shop_name || "Sharp Edge";
 
     const handleConfirmBooking = () => {
-        if (!selectedService || !selectedDate || !selectedSlot) {
-            Alert.alert("Selection Required", "Please select a service, date, and time slot.");
+        if (selectedServices.length === 0) {
+            Alert.alert("Service Required", "Please select at least one service.");
+            return;
+        }
+        if (!selectedDate || !selectedSlot) {
+            Alert.alert("Selection Required", "Please select a date and time slot.");
             return;
         }
 
@@ -156,7 +195,11 @@ export default function BarberDetailsScreen({ navigation, route }) {
         }
 
         navigation.navigate("BookingConfirmation", {
-            service: selectedService,
+            // Pass ALL selected services (multi-service)
+            services: selectedServices,
+            // Keep legacy `service` as the primary (first selected) for backward compat
+            service: selectedServices[0],
+            serviceIds: selectedServices.map(s => s._id),
             barber: barberData,
             barberId: barberData?.user?._id || barberData?.user || barberData?._id,
             barberName: name,
@@ -165,7 +208,8 @@ export default function BarberDetailsScreen({ navigation, route }) {
             timeSlotISO: selectedSlot.iso,
             serviceType: selectedServiceType,
             customerAddress: address,
-            notes: addressNotes
+            notes: addressNotes,
+            totalServicesPrice,
         });
     };
 
@@ -204,7 +248,7 @@ export default function BarberDetailsScreen({ navigation, route }) {
             {selectedServiceType === 'salon' && (
                 <TouchableOpacity
                     style={[styles.aiBanner, { backgroundColor: theme.primary + '10' }]}
-                    onPress={() => navigation.navigate("AIChat")}
+                    onPress={() => navigation.navigate("Chatbot")}
                 >
                     <View style={styles.aiIconWrap}>
                         <Text style={{ fontSize: 24 }}>✨</Text>
@@ -218,7 +262,17 @@ export default function BarberDetailsScreen({ navigation, route }) {
             )}
 
             <View style={[styles.card, { backgroundColor: theme.card }]}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Choose Service</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Choose Services</Text>
+                    {selectedServices.length > 0 && (
+                        <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '700' }}>
+                            {selectedServices.length} selected
+                        </Text>
+                    )}
+                </View>
+                <Text style={{ color: theme.textMuted, fontSize: 12, marginBottom: 12 }}>
+                    Tap to select one or more services
+                </Text>
                 {(() => {
                     const filteredServices = services.filter(s => {
                         const sType = s.serviceType || 'both';
@@ -240,35 +294,51 @@ export default function BarberDetailsScreen({ navigation, route }) {
                         );
                     }
 
+                    const EMOJIS = ['💈', '✂️', '🧔', '⭐', '🪒', '💆', '💅'];
                     return filteredServices.map((service, index) => {
-                        const isSelected = selectedService?._id === service._id;
+                        const isSelected = selectedServices.some(s => s._id === service._id);
                         return (
                             <TouchableOpacity
                                 key={service._id || index}
                                 style={[
                                     styles.serviceItem,
                                     { borderBottomColor: theme.border + '40' },
-                                    isSelected && { backgroundColor: theme.primary + '10', borderRadius: 12, paddingHorizontal: 10 }
+                                    isSelected && { backgroundColor: theme.primary + '12', borderRadius: 12, paddingHorizontal: 10 }
                                 ]}
-                                onPress={() => setSelectedService(service)}
+                                onPress={() => toggleService(service)}
+                                activeOpacity={0.7}
                             >
+                                <View style={[styles.checkbox, isSelected ? { backgroundColor: theme.primary, borderColor: theme.primary } : { borderColor: theme.border }]}>
+                                    {isSelected && <Text style={{ color: '#FFF', fontSize: 11, fontWeight: 'bold' }}>✓</Text>}
+                                </View>
                                 <View style={styles.serviceIconContainer}>
-                                    <View style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: theme.inputBg, justifyContent: 'center', alignItems: 'center' }}>
-                                        <Text style={{ fontSize: 22 }}>{index === 0 ? '💈' : index === 1 ? '✂️' : index === 2 ? '🧔' : '⭐'}</Text>
+                                    <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: isSelected ? theme.primary + '20' : theme.inputBg, justifyContent: 'center', alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 20 }}>{EMOJIS[index % EMOJIS.length]}</Text>
                                     </View>
                                 </View>
                                 <View style={styles.serviceInfo}>
-                                    <Text style={[styles.serviceName, { color: theme.text, fontWeight: isSelected ? 'bold' : '600' }]}>{service.name}</Text>
+                                    <Text style={[styles.serviceName, { color: theme.text, fontWeight: isSelected ? '700' : '600' }]}>{service.name}</Text>
                                     <Text style={[styles.serviceMeta, { color: theme.textMuted }]}>🕒 {service.duration_minutes} min</Text>
                                 </View>
                                 <View style={{ alignItems: 'flex-end' }}>
-                                    <Text style={[styles.servicePrice, { color: theme.primary, fontWeight: 'bold' }]}>Rs. {service.price}</Text>
-                                    {isSelected && <Text style={{ fontSize: 10, color: theme.primary, fontWeight: 'bold' }}>SELECTED</Text>}
+                                    <Text style={[styles.servicePrice, { color: isSelected ? theme.primary : theme.text, fontWeight: '700' }]}>Rs {service.price}</Text>
+                                    {isSelected && <Text style={{ fontSize: 9, color: theme.primary, fontWeight: '800', marginTop: 2 }}>✓ ADDED</Text>}
                                 </View>
                             </TouchableOpacity>
                         );
                     });
                 })()}
+
+                {selectedServices.length > 0 && (
+                    <View style={[styles.selectedTotalRow, { borderTopColor: theme.border, backgroundColor: theme.primary + '08' }]}>
+                        <Text style={{ color: theme.textMuted, fontSize: 13 }}>
+                            {selectedServices.length} {selectedServices.length === 1 ? 'service' : 'services'}
+                        </Text>
+                        <Text style={{ color: theme.primary, fontSize: 15, fontWeight: '800' }}>
+                            Total: Rs {totalServicesPrice}
+                        </Text>
+                    </View>
+                )}
                 {selectedServiceType === 'home' && (
                     <View style={styles.surchargeBox}>
                         <Text style={styles.surchargeText}>💡 Home visit prices include a travel surcharge</Text>
@@ -341,7 +411,7 @@ export default function BarberDetailsScreen({ navigation, route }) {
                 <View style={styles.slotsGrid}>
                     {loadingSlots ? (
                         <ActivityIndicator color={theme.primary} style={{ width: '100%', padding: 20 }} />
-                    ) : !selectedService ? (
+                    ) : selectedServices.length === 0 ? (
                         <Text style={{ width: '100%', textAlign: 'center', color: theme.textMuted, padding: 10 }}>Select a service first</Text>
                     ) : availableSlots.length === 0 ? (
                         <Text style={{ width: '100%', textAlign: 'center', color: theme.textMuted, padding: 10 }}>No slots available for this date</Text>
@@ -582,18 +652,31 @@ export default function BarberDetailsScreen({ navigation, route }) {
             </ScrollView>
 
             <View style={styles.bottomCta}>
+                {/* Price summary strip */}
+                {selectedServices.length > 0 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <Text style={{ color: theme.textMuted, fontSize: 13 }}>
+                            {selectedServices.map(s => s.name).join(' + ')}
+                        </Text>
+                        <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 14 }}>
+                            Rs {totalServicesPrice}
+                        </Text>
+                    </View>
+                )}
                 <TouchableOpacity
                     style={[
                         styles.confirmBtn,
-                        { backgroundColor: (selectedService && selectedDate && selectedSlot) ? theme.primary : theme.border }
+                        { backgroundColor: (selectedServices.length > 0 && selectedDate && selectedSlot) ? theme.primary : theme.border }
                     ]}
                     onPress={handleConfirmBooking}
-                    disabled={!selectedService || !selectedDate || !selectedSlot}
+                    disabled={selectedServices.length === 0 || !selectedDate || !selectedSlot}
                 >
                     <Text style={styles.confirmBtnText}>
-                        {(selectedService && selectedDate && selectedSlot)
-                            ? 'Confirm Booking →'
-                            : 'Select details to book'}
+                        {(selectedServices.length > 0 && selectedDate && selectedSlot)
+                            ? `Book ${selectedServices.length > 1 ? selectedServices.length + ' Services' : selectedServices[0]?.name} →`
+                            : selectedServices.length === 0
+                                ? 'Select a service first'
+                                : 'Select a time slot'}
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -637,6 +720,8 @@ const styles = StyleSheet.create({
     servicePrice: { fontSize: 16, fontWeight: 'bold' },
     surchargeBox: { marginTop: 15, padding: 12, borderRadius: 10, backgroundColor: '#FFF9C4' },
     surchargeText: { fontSize: 12, color: '#827717', fontWeight: 'bold' },
+    checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+    selectedTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, marginTop: 10, paddingTop: 12, paddingHorizontal: 4, borderRadius: 8, paddingVertical: 10, marginTop: 8 },
     inputContainer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, borderRadius: 12, borderWidth: 1, backgroundColor: '#FFF' },
     dateRow: { flexDirection: 'row' },
     dateBox: { width: 60, height: 80, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginRight: 10 },

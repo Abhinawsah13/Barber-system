@@ -8,11 +8,14 @@ export const createReview = async (req, res) => {
     try {
         const { bookingId, barberId, stars, comment, categoryRatings, tags, anonymous } = req.body;
         const customerId = req.user._id;
+        const userType = req.user.user_type;
 
-        // extra safety — route middleware already checks role, but just in case
-        if (req.user.user_type !== 'customer') {
+        // Requirement: Only customers can submit reviews
+        if (userType !== 'customer') {
             return res.status(403).json({ success: false, message: 'Only customers can submit reviews' });
         }
+
+        // extra safety — route middleware already checks role, but just in case
 
         if (!bookingId || !barberId || !stars) {
             return res.status(400).json({ success: false, message: 'bookingId, barberId, and stars are required' });
@@ -31,7 +34,7 @@ export const createReview = async (req, res) => {
 
         // make sure this booking belongs to the logged-in customer
         if (booking.customer.toString() !== customerId.toString()) {
-            return res.status(403).json({ success: false, message: 'You can only review your own bookings' });
+            return res.status(403).json({ success: false, message: 'Only the customer who made the booking can review it' });
         }
 
         // only allow review after service is done
@@ -45,9 +48,12 @@ export const createReview = async (req, res) => {
         }
 
         // prevent barber from reviewing themselves
+        // prevent any logic error where a barber might try to review their own service
         if (booking.barber.toString() === customerId.toString()) {
             return res.status(403).json({ success: false, message: 'Barbers cannot review themselves' });
         }
+
+        // prevent barber from reviewing themselves
 
         // prevent duplicate review
         const existingReview = await Review.findOne({ booking: bookingId });

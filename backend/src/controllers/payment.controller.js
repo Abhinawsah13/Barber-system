@@ -330,22 +330,36 @@ export const khaltiCallback = async (req, res) => {
         const result = lookupRes.data;
 
         if (result.status === 'Completed') {
-            // ✅ Idempotency: check if booking already created for this pidx
-            const existingBooking = await Booking.findOne({ transaction_id: pidx }).lean();
-            if (!existingBooking) {
-                // Check if it's a wallet top-up transaction
-                const transaction = await Transaction.findById(purchase_order_id);
-                if (transaction && transaction.status !== 'completed') {
-                    transaction.status = 'completed';
-                    transaction.reference_id = pidx;
-                    await transaction.save();
+            // ✅ Idempotency: check if booking/txn already created for this pidx
+            if (purchase_order_id.startsWith('TOPUP_')) {
+                const existingTxn = await Transaction.findOne({ reference_id: pidx }).lean();
+                if (!existingTxn) {
+                    const userId = purchase_order_id.split('_')[1];
+                    const amount = Math.round(result.total_amount / 100);
 
-                    const user = await User.findById(transaction.user);
-                    user.wallet_balance = (user.wallet_balance || 0) + transaction.amount;
-                    await user.save();
+                    const transaction = await Transaction.create({
+                        user: userId,
+                        type: 'credit',
+                        amount: amount,
+                        title: 'Khalti Top-up',
+                        description: 'Wallet top-up via Khalti',
+                        status: 'completed',
+                        reference_id: pidx
+                    });
+
+                    const user = await User.findById(userId);
+                    if (user) {
+                        user.wallet_balance = (user.wallet_balance || 0) + amount;
+                        await user.save();
+                    }
                 }
-                // ✅ Note: For bookings via React Native, verifyKhalti (POST) handles creation.
-                // The callback is primarily a browser redirect confirmation page.
+            } else {
+                // Booking case
+                const existingBooking = await Booking.findOne({ transaction_id: pidx }).lean();
+                if (!existingBooking) {
+                    // Note: For bookings via React Native, verifyKhalti (POST) handles creation.
+                    // The callback helper here is primarily for browser redirect pages.
+                }
             }
 
             return res.send(`
@@ -382,18 +396,12 @@ export const initiateKhaltiTopUp = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Minimum RS 10 top-up required' });
         }
 
-        // 1. Create a pending transaction
-        const transaction = await Transaction.create({
-            user: req.user._id,
-            type: 'credit',
-            amount: amount,
-            title: 'Khalti Top-up (Pending)',
-            description: 'Wallet top-up via Khalti',
-            status: 'pending'
-        });
-
-        // 2. Get customer info
+        // 1. Get customer info
         const customer = await User.findById(req.user._id).select('username email phone').lean();
+
+        // 2. Generate a temporary reference (do NOT save to DB yet)
+        // Format: TOPUP_userId_timestamp
+        const tempOrderId = `TOPUP_${req.user._id}_${Date.now()}`;
 
         // 3. Initiate KPG-2 Top-up
         const response = await axios.post(
@@ -402,7 +410,7 @@ export const initiateKhaltiTopUp = async (req, res) => {
                 return_url: `${APP_BASE_URL}/api/v2/payments/khalti/callback`,
                 website_url: APP_BASE_URL,
                 amount: Math.round(amount * 100),
-                purchase_order_id: transaction._id.toString(),
+                purchase_order_id: tempOrderId,
                 purchase_order_name: `Wallet Top-up - ${customer.username}`,
                 customer_info: {
                     name: customer.username,
@@ -419,14 +427,13 @@ export const initiateKhaltiTopUp = async (req, res) => {
         );
 
         const { pidx, payment_url } = response.data;
-        transaction.reference_id = pidx; // track pidx
-        await transaction.save();
 
         return res.json({
             success: true,
             paymentUrl: payment_url,
             pidx: pidx,
-            transactionId: transaction._id.toString(),
+            transactionId: tempOrderId, // Return tempOrderId as transactionId
+            amount: amount,
         });
 
     } catch (err) {
@@ -441,11 +448,11 @@ export const initiateKhaltiTopUp = async (req, res) => {
 
 export const verifyKhaltiTopUp = async (req, res) => {
     try {
-        const { pidx, transactionId: bodyTxnId } = req.body;
+        const { pidx } = req.body;
 
         if (!pidx) return res.status(400).json({ success: false, message: 'pidx is required' });
 
-        // Lookup
+        // 1. Lookup payment data from Khalti
         const lookupRes = await axios.post(
             `${KHALTI_BASE}/epayment/lookup/`,
             { pidx },
@@ -461,34 +468,42 @@ export const verifyKhaltiTopUp = async (req, res) => {
         console.log('[Khalti Topup Verify Lookup]', data);
 
         if (data.status !== "Completed") {
-            return res.status(400).json({ success: false, message: `Status: ${data.status}` });
+            return res.status(400).json({ success: false, message: `Payment not completed. Status: ${data.status}` });
         }
 
-        const transactionId = data.purchase_order_id || bodyTxnId;
+        // 2. Check idempotency: Has this pidx already been processed?
+        let existingTxn = await Transaction.findOne({ reference_id: pidx });
+        const user = await User.findById(req.user._id);
 
-        // 1. Find transaction
-        const pendingTxn = await Transaction.findById(transactionId);
-        if (!pendingTxn) return res.status(404).json({ success: false, message: 'Txn not found' });
-        if (pendingTxn.status === 'completed') return res.json({ success: true, message: 'Already processed' });
-
-        // 2. Validate amount
-        if (data.total_amount < (pendingTxn.amount * 100)) {
-            return res.status(400).json({ success: false, message: 'Insufficient amount' });
+        if (existingTxn) {
+            return res.json({
+                success: true,
+                balance: user.wallet_balance,
+                message: 'Payment already processed'
+            });
         }
 
-        // 3. Update
-        pendingTxn.status = 'completed';
-        pendingTxn.reference_id = pidx;
-        pendingTxn.title = 'Khalti Top-up';
-        await pendingTxn.save();
+        // 3. Create Transaction record NOW
+        const amountPaid = Math.round(data.total_amount / 100);
+        
+        const transaction = await Transaction.create({
+            user: req.user._id,
+            type: 'credit',
+            amount: amountPaid,
+            title: 'Khalti Top-up',
+            description: 'Wallet top-up via Khalti',
+            status: 'completed',
+            reference_id: pidx
+        });
 
-        const user = await User.findById(pendingTxn.user);
-        user.wallet_balance = (user.wallet_balance || 0) + pendingTxn.amount;
+        // 4. Update User wallet balance
+        user.wallet_balance = (user.wallet_balance || 0) + amountPaid;
         await user.save();
 
         return res.json({
             success: true,
             balance: user.wallet_balance,
+            transactionId: transaction._id,
             message: 'Wallet topped up successfully!'
         });
 

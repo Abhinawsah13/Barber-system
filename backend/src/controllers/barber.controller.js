@@ -14,7 +14,35 @@ export const createOrUpdateProfile = async (req, res) => {
         const {
             bio, experience_years, services = [],
             availability, service_type, profile_image, location,
+            serviceModes, pricing,
         } = req.body;
+
+        // ── SERVER-SIDE VALIDATION ─────────────────────────────────────────────
+        if (experience_years === undefined || experience_years === null) {
+             return res.status(400).json({ success: false, message: 'Experience years is required.' });
+        }
+        if (!services || services.length === 0) {
+             return res.status(400).json({ success: false, message: 'At least one service must be selected.' });
+        }
+        
+        const isSalonActive = serviceModes?.salon;
+        const isHomeActive = serviceModes?.home;
+
+        if (isSalonActive) {
+            if (!pricing?.salonValue) return res.status(400).json({ success: false, message: 'Salon price is required.' });
+            if (!availability?.salon?.openTime || !availability?.salon?.closeTime) {
+                return res.status(400).json({ success: false, message: 'Salon working hours are required.' });
+            }
+            if (!location?.address) return res.status(400).json({ success: false, message: 'Salon address is required.' });
+        }
+
+        if (isHomeActive) {
+            if (!pricing?.homeValue) return res.status(400).json({ success: false, message: 'Home service price is required.' });
+            if (!availability?.home?.openTime || !availability?.home?.closeTime) {
+                return res.status(400).json({ success: false, message: 'Home service working hours are required.' });
+            }
+            if (!location?.serviceArea) return res.status(400).json({ success: false, message: 'Service area is required for home services.' });
+        }
 
         const profileData = {
             ...(bio !== undefined && { bio: bio.trim() }),
@@ -22,7 +50,7 @@ export const createOrUpdateProfile = async (req, res) => {
             ...(services && services.length > 0 && { services }),
             ...(availability && { availability }),
             ...(service_type && { service_type }),
-            ...(req.body.pricing && { pricing: req.body.pricing }),
+            ...(pricing && { pricing }),
             ...(req.body.serviceModes && {
                 serviceModes: {
                     salon: !!req.body.serviceModes.salon,

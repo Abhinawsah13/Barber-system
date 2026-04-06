@@ -20,6 +20,7 @@ import barberRoutesV2 from './routes/barber.routes.js';
 import bookingRoutesV2 from './routes/booking.routes.js';
 import reviewRoutes from './routes/review.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
+import chatbotRoutes from './routes/chatbotRoutes.js';  // ← ADDED
 
 // Debugging .env loading
 console.log('Current CWD:', process.cwd());
@@ -52,7 +53,8 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/ai', aiRoutes);
+// app.use('/api/ai', aiRoutes); // disabled - Gemini quota exceeded
+app.use('/api/chatbot', chatbotRoutes);  // ← ADDED
 
 // Routes v2 — Sprint 2-3-5 modular routes
 app.use('/api/v2/services', serviceRoutesV2);
@@ -60,7 +62,7 @@ app.use('/api/v2/barbers', barberRoutesV2);
 app.use('/api/v2/bookings', bookingRoutesV2);
 app.use('/api/v2/reviews', reviewRoutes);
 app.use('/api/v2/payments', paymentRoutes);
-app.use('/api/v2/ai', aiRoutes);
+// app.use('/api/v2/ai', aiRoutes); // disabled - Gemini quota exceeded
 app.use('/api/subscriptions', subscriptionRoutes);
 
 // Basic route
@@ -129,10 +131,10 @@ io.on('connection', (socket) => {
     socket.on('join-user-room', (data) => {
         const userId = typeof data === 'object' ? data.userId : data;
         const role = typeof data === 'object' ? data.role : null;
-        
+
         socket.join(`user-${userId}`);
         console.log(`User ${userId} joined personal room`);
-        
+
         // Join role-specific rooms for broadcasting
         if (role === 'customer') {
             socket.join('customers');

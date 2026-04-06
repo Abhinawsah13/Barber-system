@@ -47,7 +47,10 @@ export default function BookingConfirmationScreen({ navigation, route }) {
     const { theme } = useTheme();
 
     const {
+        // ✅ MULTI-SERVICE: prefer services[] if available, fallback to single service
+        services: multiServices,
         service,
+        serviceIds,
         barber,
         barberId,
         barberName,
@@ -57,7 +60,14 @@ export default function BookingConfirmationScreen({ navigation, route }) {
         serviceType = 'salon',
         customerAddress = '',
         notes = '',
+        totalServicesPrice: passedTotal,
     } = route.params || {};
+
+    // Resolve services list — multi-service preferred over legacy single
+    const allServices = multiServices?.length ? multiServices : (service ? [service] : []);
+    const resolvedServiceIds = serviceIds?.length
+        ? serviceIds
+        : allServices.map(s => s._id).filter(Boolean);
 
     const barberCoords = barber?.location?.coordinates;
     const barberLat = barberCoords?.[1] ?? null;
@@ -69,12 +79,12 @@ export default function BookingConfirmationScreen({ navigation, route }) {
     const [travelCharge, setTravelCharge] = useState(0);
     const [distanceKm, setDistanceKm] = useState(null);
     const [paymentLoading, setPaymentLoading] = useState(false);
-    // ✅ Tracks a server-side "slot already booked" error
     const [slotBookedError, setSlotBookedError] = useState(false);
 
     const displayDate = formatDate(date);
-    const servicePrice = service?.price || 0;
-    const totalPrice = servicePrice + travelCharge;
+    // Combined price across all selected services
+    const servicesPrice = passedTotal ?? allServices.reduce((sum, s) => sum + (s.price || 0), 0);
+    const totalPrice = servicesPrice + travelCharge;
 
     const barberProfileImage = barber?.user?.profile_image || null;
     const finalImageSource = barberProfileImage ? { uri: barberProfileImage } : require('../../../assets/barber.png');
@@ -139,7 +149,8 @@ export default function BookingConfirmationScreen({ navigation, route }) {
         try {
             const result = await initiateKhaltiPayment({
                 barberId,
-                serviceId: service?._id,
+                serviceId: resolvedServiceIds[0], // ✅ PRIMARY SERVICE for backend validation
+                serviceIds: resolvedServiceIds,    // ✅ MULTI-SERVICE array
                 date,
                 timeSlot,
                 serviceType,
@@ -213,7 +224,8 @@ export default function BookingConfirmationScreen({ navigation, route }) {
         try {
             const bookingPayload = {
                 barberId,
-                serviceId: service?._id,
+                // ✅ MULTI-SERVICE: send serviceIds array
+                serviceIds: resolvedServiceIds,
                 date,
                 time_slot: timeSlot,
                 serviceType,
@@ -348,7 +360,24 @@ Time</Text>
                 {/* Booking details */}
                 <View style={[styles.detailCard, { backgroundColor: theme.card }]}>
                     <Text style={[styles.cardTitle, { color: theme.text }]}>Booking Details</Text>
-                    <InfoRow icon="✂️" label="Service" value={service?.name || '—'} theme={theme} />
+                    {/* ✅ MULTI-SERVICE: show each service */}
+                    {allServices.length > 1 ? (
+                        <View style={styles.infoRow}>
+                            <View style={[styles.iconWrap, { backgroundColor: theme.primary + '18' }]}>
+                                <Text style={styles.infoIcon}>✂️</Text>
+                            </View>
+                            <View style={styles.infoText}>
+                                <Text style={[styles.infoLabel, { color: theme.textMuted }]}>Services ({allServices.length})</Text>
+                                {allServices.map((s, i) => (
+                                    <Text key={i} style={[styles.infoValue, { color: theme.text, fontSize: 13 }]}>
+                                        • {s.name} — Rs {s.price}
+                                    </Text>
+                                ))}
+                            </View>
+                        </View>
+                    ) : (
+                        <InfoRow icon="✂️" label="Service" value={allServices[0]?.name || '—'} theme={theme} />
+                    )}
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
                     <InfoRow icon="📅" label="Date" value={displayDate} theme={theme} />
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
@@ -392,14 +421,24 @@ Time</Text>
                     )}
                 </View>
 
-                {/* ✅ FIX 2: Price breakdown with travel charge */}
+                {/* Price breakdown */}
                 <View style={[styles.priceCard, { backgroundColor: theme.card }]}>
                     <Text style={[styles.cardTitle, { color: theme.text }]}>Price Summary</Text>
 
-                    <View style={styles.priceRow}>
-                        <Text style={[styles.priceLabel, { color: theme.textLight }]}>{service?.name}</Text>
-                        <Text style={[styles.priceValue, { color: theme.text }]}>Rs {servicePrice}</Text>
-                    </View>
+                    {/* ✅ MULTI-SERVICE: show line items */}
+                    {allServices.length > 1 ? (
+                        allServices.map((s, i) => (
+                            <View key={i} style={styles.priceRow}>
+                                <Text style={[styles.priceLabel, { color: theme.textLight }]}>{s.name}</Text>
+                                <Text style={[styles.priceValue, { color: theme.text }]}>Rs {s.price}</Text>
+                            </View>
+                        ))
+                    ) : (
+                        <View style={styles.priceRow}>
+                            <Text style={[styles.priceLabel, { color: theme.textLight }]}>{allServices[0]?.name}</Text>
+                            <Text style={[styles.priceValue, { color: theme.text }]}>Rs {servicesPrice}</Text>
+                        </View>
+                    )}
 
                     {serviceType === 'home' && (
                         <View style={styles.priceRow}>

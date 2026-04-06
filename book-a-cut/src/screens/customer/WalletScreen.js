@@ -213,27 +213,6 @@ export default function WalletScreen({ navigation }) {
                     </View>
                 </View>
 
-                {/* Payment Methods */}
-                <View style={styles.sectionHeader}>
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('payment_methods')}</Text>
-                    <TouchableOpacity onPress={() => Alert.alert(t('manage'), t('manage_cards_coming_soon'))}>
-                        <Text style={[styles.linkText, { color: theme.primary }]}>{t('manage')}</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                    style={[styles.methodCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                    onPress={() => Alert.alert(t('settings'), t('default_card_desc'))}
-                >
-                    <View style={styles.methodRow}>
-                        <Text style={{ fontSize: 24, marginRight: 15 }}>💳</Text>
-                        <View style={{ flex: 1 }}>
-                            <Text style={[styles.methodTitle, { color: theme.text }]}>{t('saved_cards')}</Text>
-                            <Text style={[styles.methodSubtitle, { color: theme.textMuted }]}>{t('click_to_manage')}</Text>
-                        </View>
-                        <Text style={{ color: theme.primary, fontWeight: 'bold' }}>{t('default')}</Text>
-                    </View>
-                </TouchableOpacity>
 
                 {/* Transaction History */}
                 <View style={styles.sectionHeader}>

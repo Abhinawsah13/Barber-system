@@ -382,7 +382,7 @@ export default function HomeServicesScreen({ navigation, route }) {
             {/* AI FAB */}
             <TouchableOpacity
                 style={[styles.fab, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
-                onPress={() => navigation.navigate('AIChat')}
+                onPress={() => navigation.navigate('Chatbot')}
             >
                 <Text style={{ fontSize: 24, color: '#FFF' }}>✨</Text>
             </TouchableOpacity>

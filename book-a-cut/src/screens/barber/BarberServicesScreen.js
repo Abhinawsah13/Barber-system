@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageProvider';
-import { getServices, createService, updateService, deleteService, getProfile, getBarberById } from '../../services/api';
+import { getServices, createService, updateService, deleteService, getProfile, getBarberById, getMyBarberProfile } from '../../services/api';
 
 export default function BarberServicesScreen({ navigation }) {
     const { theme } = useTheme();
@@ -29,8 +29,9 @@ export default function BarberServicesScreen({ navigation }) {
                     setBarberId(profile._id);
                     fetchBarberServices(profile._id);
 
-                    const barberRes = await getBarberById(profile._id);
-                    const barberData = barberRes?.data || barberRes;
+                    // ✅ Use getMyBarberProfile — server resolves via JWT, no ID needed
+                    const barberRes = await getMyBarberProfile();
+                    const barberData = barberRes || {};
 
                     const cats = barberData?.services || [];
                     setSkillCategories(cats);
@@ -66,8 +67,8 @@ export default function BarberServicesScreen({ navigation }) {
     const handleEdit = (service) => {
         setEditingService(service);
         setName(service.name);
-        setPrice(String(service.price));
-        setDuration(String(service.duration_minutes));
+        setPrice(service.price ? String(service.price) : '');
+        setDuration(service.duration_minutes ? String(service.duration_minutes) : '30');
         setCategory(service.category || '');
         setModalVisible(true);
     };
@@ -88,7 +89,7 @@ export default function BarberServicesScreen({ navigation }) {
         };
 
         try {
-            if (editingService) {
+            if (editingService && editingService._id && !editingService._id.startsWith('tmp_')) {
                 await updateService(editingService._id, payload);
             } else {
                 await createService(payload);
@@ -147,7 +148,6 @@ export default function BarberServicesScreen({ navigation }) {
             </View>
         );
     };
-
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
             <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
@@ -155,27 +155,72 @@ export default function BarberServicesScreen({ navigation }) {
                     <Text style={{ fontSize: 24, color: theme.primary }}>←</Text>
                 </TouchableOpacity>
                 <Text style={[styles.headerTitle, { color: theme.text }]}>{t('my_services')}</Text>
-                <TouchableOpacity onPress={() => { resetForm(); setModalVisible(true); }}>
-                    <Text style={[styles.addText, { color: theme.primary }]}>+ {t('add_service')}</Text>
-                </TouchableOpacity>
+                <View style={{ width: 24 }} />
             </View>
 
-            {loading ? (
+            {loading && skillCategories.length === 0 ? (
                 <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 50 }} />
             ) : (
                 <FlatList
-                    data={serviceList}
-                    renderItem={renderServiceCard}
-                    keyExtractor={(item) => item._id}
+                    data={Array.from(new Set(skillCategories)).reduce((acc, cat, idx) => {
+                        const existing = serviceList.find(s => 
+                            (s.name === cat || s.category === cat) && !acc.usedIds.has(s._id)
+                        );
+                        if (existing) {
+                            acc.usedIds.add(existing._id);
+                            acc.data.push(existing);
+                        } else {
+                            acc.data.push({ _id: 'tmp_' + idx + '_' + cat, name: cat, category: cat, isConfigured: false });
+                        }
+                        return acc;
+                    }, { usedIds: new Set(), data: [] }).data}
+                    renderItem={({ item }) => (
+                        <View style={[styles.card, { backgroundColor: theme.card, shadowColor: theme.shadow, opacity: item.isConfigured === false ? 0.7 : 1 }]}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[styles.serviceName, { color: theme.text }]}>{item.name}</Text>
+                                {item.isConfigured === false ? (
+                                    <Text style={{ color: '#FF9500', fontSize: 13, marginTop: 4 }}>Price & Duration needed</Text>
+                                ) : (
+                                    <Text style={[styles.serviceMeta, { color: theme.textLight }]}>
+                                        {item.duration_minutes} min
+                                    </Text>
+                                )}
+                            </View>
+
+                            <View style={styles.rightSection}>
+                                {item.isConfigured !== false && (
+                                    <Text style={[styles.servicePrice, { color: theme.primary }]}>Rs. {item.price}</Text>
+                                )}
+                                <View style={styles.actionRow}>
+                                    <TouchableOpacity 
+                                        onPress={() => handleEdit(item)} 
+                                        style={[styles.setupBtn, item.isConfigured === false && { backgroundColor: theme.primary }]}
+                                    >
+                                        <Text style={[styles.setupBtnText, item.isConfigured === false && { color: '#FFF' }]}>
+                                            {item.isConfigured === false ? 'Set Info' : t('edit_service')}
+                                        </Text>
+                                    </TouchableOpacity>
+                                    {item.isConfigured !== false && (
+                                        <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.iconBtn}>
+                                            <Text style={{ color: '#FF3B30' }}>✕</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            </View>
+                        </View>
+                    )}
+                    keyExtractor={(item) => item._id || item.name}
                     contentContainerStyle={styles.listContent}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
-                            <Text style={{ color: theme.textLight, fontSize: 16 }}>{t('no_services')}</Text>
+                            <Text style={{ color: theme.textLight, fontSize: 16, textAlign: 'center', marginBottom: 15 }}>
+                                You haven't selected any basic services in your Profile.
+                            </Text>
                             <TouchableOpacity
-                                style={[styles.addFirstBtn, { backgroundColor: theme.primary }]}
-                                onPress={() => setModalVisible(true)}
+                                style={[styles.addFirstBtn, { backgroundColor: theme.primary, alignSelf: 'center' }]}
+                                onPress={() => navigation.navigate('BarberEditProfileScreen')}
                             >
-                                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{t('add_first_service')}</Text>
+                                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Update Profile Services</Text>
                             </TouchableOpacity>
                         </View>
                     }
@@ -186,30 +231,15 @@ export default function BarberServicesScreen({ navigation }) {
                 <View style={styles.modalOverlay}>
                     <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
                         <Text style={[styles.modalTitle, { color: theme.text }]}>
-                            {editingService ? t('edit_service') : t('add_new_service')}
+                            {editingService?.isConfigured === false ? 'Configure Service' : t('edit_service')}
                         </Text>
 
                         <ScrollView showsVerticalScrollIndicator={false}>
-                            <Text style={[styles.label, { color: theme.textMuted }]}>{t('category')}</Text>
-                            <View style={styles.chipRow}>
-                                {skillCategories.map(s => (
-                                    <TouchableOpacity
-                                        key={s}
-                                        onPress={() => setCategory(s)}
-                                        style={[styles.chip, category === s ? { backgroundColor: theme.primary } : { backgroundColor: theme.border + '20' }]}
-                                    >
-                                        <Text style={{ color: category === s ? '#FFF' : theme.text }}>{s}</Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-
                             <Text style={[styles.label, { color: theme.textMuted }]}>{t('service_name')}</Text>
                             <TextInput
-                                style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
+                                style={[styles.input, { backgroundColor: theme.border + '30', color: theme.textMuted, borderColor: theme.border }]}
                                 value={name}
-                                onChangeText={setName}
-                                placeholder="..."
-                                placeholderTextColor={theme.textMuted}
+                                editable={false}
                             />
 
                             <View style={styles.row}>
@@ -247,9 +277,9 @@ export default function BarberServicesScreen({ navigation }) {
                                 <TouchableOpacity
                                     style={[styles.modalBtn, { backgroundColor: theme.primary }]}
                                     onPress={handleSave}
-                                    disabled={saving || skillCategories.length === 0}
+                                    disabled={saving}
                                 >
-                                    {saving ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{t('save_service')}</Text>}
+                                    {saving ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: '#FFF', fontWeight: '700' }}>{t('save')}</Text>}
                                 </TouchableOpacity>
                             </View>
                         </ScrollView>

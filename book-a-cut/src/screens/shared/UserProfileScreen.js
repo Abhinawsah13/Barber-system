@@ -46,12 +46,11 @@ export default function UserProfileScreen({ navigation, route }) {
     const accountItems = [
         { icon: "📅", label: "My Bookings", screen: "MyBookings", color: theme.primary },
         { icon: "💳", label: "Wallet & Payments", screen: "Wallet", color: theme.primary },
-        { icon: "🤖", label: "AI Preferences", screen: null, action: () => alert("AI Preferences coming soon!") },
     ];
 
     const generalItems = [
         { icon: "⚙️", label: "Settings", screen: "Settings", color: theme.textMuted },
-        { icon: "❓", label: "Help & Support", screen: null, action: () => alert("Help & Support coming soon!") },
+        { icon: "❓", label: "Help & Support", screen: "HelpSupport", color: theme.textMuted },
     ];
 
     const handleLogout = async () => {
@@ -192,7 +191,7 @@ export default function UserProfileScreen({ navigation, route }) {
                     <Text style={{ fontSize: 24, color: theme.textMuted }}>🔍</Text>
                     <Text style={{ fontSize: 10, color: theme.textMuted }}>Explore</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => navigation.navigate('AIChat')} style={{ alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => navigation.navigate('Chatbot')} style={{ alignItems: 'center' }}>
                     <Text style={{ fontSize: 24, color: theme.textMuted }}>💬</Text>
                     <Text style={{ fontSize: 10, color: theme.textMuted }}>AI Chat</Text>
                 </TouchableOpacity>

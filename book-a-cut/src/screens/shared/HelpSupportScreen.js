@@ -1,38 +1,27 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, LayoutAnimation, Platform, UIManager } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageProvider';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-const getFAQ = (t) => [
-    {
-        q: t('faq_q1'),
-        a: t('faq_a1')
-    },
-    {
-        q: t('faq_q2'),
-        a: t('faq_a2')
-    },
-    {
-        q: t('faq_q3'),
-        a: t('faq_a3')
-    }
-];
-
 export default function HelpSupportScreen({ navigation }) {
     const { theme } = useTheme();
     const { t } = useLanguage();
-    const [expanded, setExpanded] = useState(null);
-    const FAQ = getFAQ(t);
 
-    const toggleFAQ = (idx) => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setExpanded(expanded === idx ? null : idx);
-    };
+    const menuItems = [
+        {
+            title: t('faq'),
+            description: "Find answers to commonly asked questions",
+            icon: "❓",
+            screen: "FAQ"
+        },
+        {
+            title: t('contact_us'),
+            description: "Get in touch with our support team",
+            icon: "📞",
+            screen: "ContactUs"
+        }
+    ];
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -44,39 +33,31 @@ export default function HelpSupportScreen({ navigation }) {
             </View>
 
             <ScrollView contentContainerStyle={styles.content}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('contact_details')}</Text>
-                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    <View style={styles.contactItem}>
-                        <Text style={[styles.contactLabel, { color: theme.textMuted }]}>{t('email')}</Text>
-                        <Text style={[styles.contactValue, { color: theme.primary }]}>abhinawprasad83@gmail.com</Text>
-                    </View>
-                    <View style={[styles.divider, { backgroundColor: theme.inputBg }]} />
-                    <View style={styles.contactItem}>
-                        <Text style={[styles.contactLabel, { color: theme.textMuted }]}>{t('phone')}</Text>
-                        <Text style={[styles.contactValue, { color: theme.primary }]}>9765252198</Text>
-                    </View>
-                </View>
+                <Text style={[styles.welcomeText, { color: theme.text }]}>How can we help you?</Text>
+                <Text style={[styles.subtitle, { color: theme.textMuted }]}>Select an option below to get the assistance you need.</Text>
 
-                <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 30 }]}>{t('faq')} ({t('faq')})</Text>
-                {FAQ.map((item, idx) => (
+                {menuItems.map((item, index) => (
                     <TouchableOpacity
-                        key={idx}
-                        style={[styles.faqCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                        onPress={() => toggleFAQ(idx)}
+                        key={index}
+                        style={[styles.menuCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+                        onPress={() => navigation.navigate(item.screen)}
                     >
-                        <View style={styles.faqHeader}>
-                            <Text style={[styles.faqQuestion, { color: theme.text }]}>{item.q}</Text>
-                            <Text style={[styles.chevron, { color: theme.primary }]}>{expanded === idx ? '▲' : '▼'}</Text>
+                        <View style={[styles.iconBox, { backgroundColor: theme.primary + '15' }]}>
+                            <Text style={styles.icon}>{item.icon}</Text>
                         </View>
-                        {expanded === idx && (
-                            <Text style={[styles.faqAnswer, { color: theme.textLight }]}>{item.a}</Text>
-                        )}
+                        <View style={styles.menuText}>
+                            <Text style={[styles.menuTitle, { color: theme.text }]}>{item.title}</Text>
+                            <Text style={[styles.menuDesc, { color: theme.textLight }]}>{item.description}</Text>
+                        </View>
+                        <Text style={[styles.chevron, { color: theme.textMuted }]}>›</Text>
                     </TouchableOpacity>
                 ))}
 
-                <TouchableOpacity style={[styles.supportBtn, { backgroundColor: theme.primary }]}>
-                    <Text style={styles.supportBtnText}>{t('contact_support')}</Text>
-                </TouchableOpacity>
+                <View style={[styles.infoBox, { backgroundColor: theme.primary + '05', borderColor: theme.primary + '20' }]}>
+                    <Text style={[styles.infoText, { color: theme.textLight }]}>
+                        Our support team is available Monday to Friday, 9:00 AM - 6:00 PM.
+                    </Text>
+                </View>
             </ScrollView>
         </SafeAreaView>
     );
@@ -89,17 +70,27 @@ const styles = StyleSheet.create({
     backText: { fontSize: 24, fontWeight: 'bold' },
     headerTitle: { fontSize: 20, fontWeight: 'bold' },
     content: { padding: 20 },
-    sectionTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15 },
-    card: { borderRadius: 15, borderWidth: 1, overflow: 'hidden' },
-    contactItem: { padding: 18 },
-    contactLabel: { fontSize: 13, marginBottom: 5 },
-    contactValue: { fontSize: 16, fontWeight: '600' },
-    divider: { height: 1 },
-    faqCard: { marginBottom: 10, borderRadius: 12, borderWidth: 1, padding: 15 },
-    faqHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    faqQuestion: { fontSize: 15, fontWeight: '600', flex: 1, marginRight: 10 },
-    chevron: { fontSize: 12 },
-    faqAnswer: { fontSize: 14, marginTop: 12, lineHeight: 20 },
-    supportBtn: { marginTop: 40, padding: 18, borderRadius: 12, alignItems: 'center' },
-    supportBtnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+    welcomeText: { fontSize: 24, fontWeight: 'bold', marginTop: 10, marginBottom: 8 },
+    subtitle: { fontSize: 15, marginBottom: 30 },
+    menuCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 20,
+        borderRadius: 16,
+        borderWidth: 1,
+        marginBottom: 15,
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+    },
+    iconBox: { width: 50, height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+    icon: { fontSize: 22 },
+    menuText: { flex: 1 },
+    menuTitle: { fontSize: 17, fontWeight: 'bold', marginBottom: 2 },
+    menuDesc: { fontSize: 13 },
+    chevron: { fontSize: 24, fontWeight: '300' },
+    infoBox: { marginTop: 20, padding: 20, borderRadius: 15, borderWidth: 1, alignItems: 'center' },
+    infoText: { textAlign: 'center', fontSize: 13, lineHeight: 20 },
 });

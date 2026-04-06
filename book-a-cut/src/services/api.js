@@ -635,6 +635,32 @@ export const toggleBarberOnlineStatus = async (statusData) => {
     }
 };
 
+// GET /api/barbers/me — fetch the logged-in barber's OWN profile (no ID needed)
+// Backend resolves the barber via JWT token (req.user._id)
+export const getMyBarberProfile = async () => {
+    try {
+        const token = await getToken();
+        const url = `${BASE_URL}/barbers/me`;
+        logRequest(url, 'GET');
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: buildHeaders(token),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to fetch barber profile');
+        }
+
+        return data.data;
+    } catch (error) {
+        console.error('Error fetching own barber profile:', error);
+        return null;
+    }
+};
+
 export const getServiceCategories = async () => {
     try {
         const url = `${BASE_URL}/v2/barbers/services-list`;
@@ -677,6 +703,7 @@ export const createBooking = async (bookingData) => {
         throw error;
     }
 };
+
 
 export const getMyBookings = async () => {
     try {
@@ -857,25 +884,34 @@ export const getAvailableSlots = async ({ barberId, serviceId, date, serviceType
     }
 };
 
+// ✅ MULTI-SERVICE: createBookingV2 — accepts serviceIds[] for multi-service bookings
+// Falls back to wrapping a single serviceId so old call sites still work.
 export const createBookingV2 = async (bookingData) => {
     try {
         const token = await getToken();
         const url = `${BASE_URL}/v2/bookings`;
         logRequest(url, 'POST', bookingData);
 
+        // Normalise: if caller passes a single `serviceId`, wrap it in an array
+        const payload = {
+            ...bookingData,
+            serviceIds: bookingData.serviceIds?.length
+                ? bookingData.serviceIds
+                : bookingData.serviceId
+                    ? [bookingData.serviceId]
+                    : [],
+        };
+
         const response = await fetch(url, {
             method: 'POST',
             headers: buildHeaders(token),
-            body: JSON.stringify(bookingData),
+            body: JSON.stringify(payload),
         });
 
         const data = await response.json();
 
-        if (!response.ok) {
-            throw new Error(data.message);
-        }
-
-        return data;
+        // Return raw response so callers can read .success / .statusCode
+        return { ...data, statusCode: response.status };
     } catch (error) {
         throw error;
     }

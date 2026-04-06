@@ -1,0 +1,230 @@
+﻿import json
+import pickle
+import numpy as np
+import nltk
+from nltk.stem import LancasterStemmer
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import LabelEncoder
+
+nltk.download('punkt')
+nltk.download('punkt_tab')
+
+stemmer = LancasterStemmer()
+
+intents = {
+    "intents": [
+        {
+            "tag": "greeting",
+            "patterns": ["Hello", "Hi", "Hey", "Good morning", "Good afternoon",
+                         "What's up", "Howdy", "Hi there", "Hey there", "Greetings"],
+            "responses": ["Hi! I am your Book-A-Cut assistant. How can I help you today?",
+                          "Hello! Ready to help you book your next appointment.",
+                          "Hey there! What can I do for you today?"]
+        },
+        {
+            "tag": "goodbye",
+            "patterns": ["Bye", "Goodbye", "See you", "See you later", "Thanks bye",
+                         "Take care", "That is all", "I am done", "Exit", "Quit"],
+            "responses": ["Goodbye! Come back anytime.",
+                          "See you soon! Have a great day.",
+                          "Take care! Your next haircut awaits."]
+        },
+        {
+            "tag": "book_appointment",
+            "patterns": [
+                "Book a haircut", "I want to book", "Schedule an appointment",
+                "Book with Raju", "Book haircut tomorrow 3pm", "Can I get a haircut",
+                "I need a trim", "Make an appointment", "Reserve a slot",
+                "Book me in", "I want an appointment", "Set up a booking",
+                "Can you book for me", "Book a beard trim", "I need a shave",
+                "Book haircut at 2pm", "Appointment for tomorrow", "Book next Monday",
+                "I want to schedule", "Get me a slot", "Book barber today"
+            ],
+            "responses": ["I can help you book! Which barber and service do you need?",
+                          "Sure! Tell me the service, barber name, date and time.",
+                          "Let me help you schedule that appointment!"]
+        },
+        {
+            "tag": "check_availability",
+            "patterns": [
+                "Is Raju available", "When is the barber free", "Check availability",
+                "Who is available today", "Any slots today", "Is there a slot at 3pm",
+                "Are there open slots", "What times are free", "When can I come in",
+                "Check barber schedule", "Is anyone free tomorrow", "Available barbers",
+                "Free slots this afternoon", "Open appointment times"
+            ],
+            "responses": ["Let me check availability for you.",
+                          "Checking open slots now...",
+                          "I will look up available times for you."]
+        },
+        {
+            "tag": "cancel_booking",
+            "patterns": [
+                "Cancel my booking", "I want to cancel", "Cancel appointment",
+                "Remove my booking", "Delete my appointment", "Cancel my reservation",
+                "I need to cancel", "Cancel booking please", "Cancel my slot",
+                "I cannot make it", "Need to cancel"
+            ],
+            "responses": ["I can help you cancel. Let me find your booking.",
+                          "Sure, I will look up your current booking to cancel.",
+                          "Let me pull up your booking details for cancellation."]
+        },
+        {
+            "tag": "check_price",
+            "patterns": [
+                "How much is a haircut", "What is the price", "How much does it cost",
+                "Price list", "Rates", "What are the charges", "Cost of services",
+                "How much for a beard trim", "Service prices", "What do you charge",
+                "Price of haircut", "Fees", "How expensive is it"
+            ],
+            "responses": ["Service prices vary by barber. A haircut typically starts from Rs 200.",
+                          "Prices depend on the service and barber. Browse barbers to see exact rates.",
+                          "Check individual barber profiles for their service pricing."]
+        },
+        {
+            "tag": "check_status",
+            "patterns": [
+                "What is my booking status", "Is my booking confirmed", "Status of my appointment",
+                "Did the barber accept", "My booking status", "Check my appointment",
+                "What happened to my booking", "Has my booking been confirmed",
+                "Is my appointment approved", "Track my booking", "Booking update"
+            ],
+            "responses": ["Let me check your latest booking status.",
+                          "Checking your booking now...",
+                          "I will look up your current appointment status."]
+        },
+        {
+            "tag": "wallet_balance",
+            "patterns": [
+                "What is my wallet balance", "How much in my wallet", "Check my balance",
+                "Wallet amount", "My wallet", "How much money do I have",
+                "Check wallet", "Wallet funds", "Available balance", "My account balance"
+            ],
+            "responses": ["Let me fetch your wallet balance.",
+                          "Checking your wallet now...",
+                          "I will look up your current balance."]
+        },
+        {
+            "tag": "loyalty_points",
+            "patterns": [
+                "How many points do I have", "My loyalty points", "Check my points",
+                "Points balance", "What tier am I", "Loyalty tier", "My rewards",
+                "How many rewards", "Bronze Silver Gold", "Redeem points",
+                "Points earned", "My loyalty status", "Reward points check"
+            ],
+            "responses": ["Let me check your loyalty points and tier.",
+                          "Checking your rewards balance...",
+                          "I will look up your points and current tier status."]
+        },
+        {
+            "tag": "home_service",
+            "patterns": [
+                "Can the barber come home", "Home service available", "Book home visit",
+                "I want barber at my location", "Do you do home visits", "Home haircut",
+                "Barber at my house", "Can someone come to me", "Home delivery service",
+                "Visit me at home", "Barber to my address"
+            ],
+            "responses": ["Yes we offer home services! The barber will come to your location.",
+                          "Home service is available. A travel charge applies based on distance.",
+                          "Absolutely! Book a home service and share your GPS location when booking."]
+        },
+        {
+            "tag": "refund",
+            "patterns": [
+                "I want a refund", "Refund my payment", "How do I get refund",
+                "Cancel and refund", "Money back", "Get my money back",
+                "Refund policy", "Cancellation refund", "How much refund will I get",
+                "Partial refund", "Full refund"
+            ],
+            "responses": [
+                "Our refund policy: more than 2 hours before gets 100 percent refund. 1 to 2 hours gets 70 percent. Less than 1 hour gets 50 percent. No refund if service has started.",
+                "Refunds depend on when you cancel. Cancel early for the best refund rate.",
+                "Your refund amount depends on how far in advance you cancel your booking."
+            ]
+        },
+        {
+            "tag": "recommend_barber",
+            "patterns": [
+                "Who is the best barber", "Recommend a barber", "Which barber should I choose",
+                "Top rated barber", "Best barber near me", "Good barber recommendation",
+                "Suggest a barber", "Who should I book", "Highest rated barber",
+                "Popular barbers", "Barber recommendation"
+            ],
+            "responses": ["Let me find the top rated barbers for you!",
+                          "I will show you our highest rated barbers.",
+                          "Here are the best reviewed barbers available."]
+        },
+        {
+            "tag": "unclear",
+            "patterns": ["hmm", "I do not know", "not sure", "maybe", "whatever",
+                         "ok", "okay", "alright", "sure", "fine"],
+            "responses": ["I did not quite catch that. Could you rephrase?",
+                          "Can you be more specific? I can help with bookings, wallet, points, and more.",
+                          "Sorry I did not understand. Try asking about booking, wallet balance, or loyalty points."]
+        }
+    ]
+}
+
+with open('intents.json', 'w') as f:
+    json.dump(intents, f)
+
+words = []
+classes = []
+documents = []
+ignore_chars = ['?', '!', '.', ',', "'"]
+
+for intent in intents['intents']:
+    for pattern in intent['patterns']:
+        word_list = nltk.word_tokenize(pattern)
+        words.extend(word_list)
+        documents.append((word_list, intent['tag']))
+        if intent['tag'] not in classes:
+            classes.append(intent['tag'])
+
+words = sorted(set([
+    stemmer.stem(w.lower()) for w in words if w not in ignore_chars
+]))
+classes = sorted(set(classes))
+
+print(f"Words: {len(words)}, Classes: {len(classes)}, Documents: {len(documents)}")
+
+training_X = []
+training_y = []
+
+for doc_words, tag in documents:
+    bag = []
+    word_patterns = [stemmer.stem(w.lower()) for w in doc_words]
+    for w in words:
+        bag.append(1 if w in word_patterns else 0)
+    training_X.append(bag)
+    training_y.append(tag)
+
+training_X = np.array(training_X)
+training_y = np.array(training_y)
+
+le = LabelEncoder()
+training_y_encoded = le.fit_transform(training_y)
+
+print("Training model...")
+model = MLPClassifier(
+    hidden_layer_sizes=(256, 128),
+    activation='relu',
+    solver='adam',
+    max_iter=1000,
+    random_state=42,
+    early_stopping=True,
+    validation_fraction=0.1,
+    n_iter_no_change=20
+)
+model.fit(training_X, training_y_encoded)
+
+train_accuracy = model.score(training_X, training_y_encoded)
+print(f"Training accuracy: {train_accuracy:.2%}")
+
+pickle.dump(model, open('chatbot_model.pkl', 'wb'))
+pickle.dump(words, open('words.pkl', 'wb'))
+pickle.dump(classes, open('classes.pkl', 'wb'))
+pickle.dump(le, open('label_encoder.pkl', 'wb'))
+
+print("Model trained and saved successfully!")
+print(f"Intents: {classes}")

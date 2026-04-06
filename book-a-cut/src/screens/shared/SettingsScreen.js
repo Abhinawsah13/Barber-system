@@ -128,11 +128,9 @@ export default function SettingsScreen({ navigation }) {
 
                 <Text style={styles.sectionHeader}>{t('help_support')}</Text>
                 <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                    {renderLinkItem(t('faq'), "❓", () => navigation.navigate("HelpSupport"))}
+                    {renderLinkItem(t('faq'), "❓", () => navigation.navigate("FAQ"))}
                     <View style={[styles.divider, { backgroundColor: theme.inputBg }]} />
-                    {renderLinkItem(t('contact_us'), "📞", () => navigation.navigate("HelpSupport"))}
-                    <View style={[styles.divider, { backgroundColor: theme.inputBg }]} />
-                    {renderLinkItem(t('about_app'), "ℹ️", () => Alert.alert(t('about_app'), "Book-A-Cut Version 1.0.0"))}
+                    {renderLinkItem(t('contact_us'), "📞", () => navigation.navigate("ContactUs"))}
                 </View>
 
                 <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>

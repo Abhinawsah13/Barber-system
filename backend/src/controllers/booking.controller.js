@@ -87,15 +87,28 @@ export const createBooking = async (req, res) => {
 
     try {
         const {
-            barberId, serviceId, date, time_slot,
+            barberId, date, time_slot,
             serviceType = 'salon', customerAddress,
-            customerLat, customerLng
+            customerLat, customerLng,
+            // ✅ MULTI-SERVICE: accept either serviceIds[] OR legacy serviceId/serviceId
+            serviceIds,
+            serviceId, // legacy single-service fallback
         } = req.body;
 
+        // ── Normalise to array ────────────────────────────────────────────────
+        const resolvedServiceIds = Array.isArray(serviceIds) && serviceIds.length > 0
+            ? serviceIds
+            : serviceId
+                ? [serviceId]
+                : [];
+
         // Input validation
-        if (!barberId || !serviceId || !date || !time_slot) {
+        if (!barberId || resolvedServiceIds.length === 0 || !date || !time_slot) {
             await session.abortTransaction();
-            return res.status(400).json({ success: false, message: 'barberId, serviceId, date, and time_slot are required' });
+            return res.status(400).json({
+                success: false,
+                message: 'barberId, at least one serviceId, date, and time_slot are required'
+            });
         }
 
         // Validate date is not in the past
@@ -116,12 +129,29 @@ export const createBooking = async (req, res) => {
             });
         }
 
-        // Fetch service
-        const service = await Service.findById(serviceId).session(session).lean();
-        if (!service || !service.is_active) {
+        // ── Fetch all selected services ───────────────────────────────────────
+        const fetchedServices = await Service.find({
+            _id: { $in: resolvedServiceIds },
+            is_active: true,
+        }).session(session).lean();
+
+        if (fetchedServices.length !== resolvedServiceIds.length) {
             await session.abortTransaction();
-            return res.status(404).json({ success: false, message: 'Service not found or inactive' });
+            return res.status(404).json({
+                success: false,
+                message: 'One or more selected services were not found or are inactive'
+            });
         }
+
+        // ── Compute totals ────────────────────────────────────────────────────
+        // Use the LONGEST service duration for slot-conflict checking (most conservative)
+        const totalDuration = fetchedServices.reduce((sum, s) => sum + (s.duration_minutes || 30), 0);
+        const longestService = fetchedServices.reduce(
+            (max, s) => (s.duration_minutes > max.duration_minutes ? s : max),
+            fetchedServices[0]
+        );
+        const servicesBasePrice = fetchedServices.reduce((sum, s) => sum + (s.price || 0), 0);
+        const serviceNames = fetchedServices.map(s => s.name);
 
         // Verify barber profile
         const barberProfile = await BarberProfile.findOne({ user: barberId }).session(session).lean();
@@ -130,8 +160,8 @@ export const createBooking = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Barber not found' });
         }
 
-        // Validate slot
-        const availableSlots = await getAvailableSlots(barberId, service.duration_minutes, dateStr, serviceType);
+        // Validate slot — use longest service duration so it blocks enough time
+        const availableSlots = await getAvailableSlots(barberId, longestService.duration_minutes, dateStr, serviceType);
         const isValidSlot = availableSlots.some(s => s.time === time_slot);
         if (!isValidSlot) {
             await session.abortTransaction();
@@ -159,7 +189,7 @@ export const createBooking = async (req, res) => {
         }
 
         // Conflict check (overlapping duration)
-        const conflict = await hasConflict(barberId, dateStr, time_slot, service.duration_minutes, session);
+        const conflict = await hasConflict(barberId, dateStr, time_slot, longestService.duration_minutes, session);
         if (conflict) {
             await session.abortTransaction();
             return res.status(409).json({ success: false, message: 'This time slot was just booked. Please choose another.' });
@@ -182,15 +212,18 @@ export const createBooking = async (req, res) => {
             }
         }
 
-        // ✅ FIX 2: Total = service price + travel charge
-        const totalPrice = service.price + travelCharge;
+        // ✅ Total = sum of all service prices + travel charge
+        const totalPrice = servicesBasePrice + travelCharge;
 
-        // Create booking
+        // Create booking — store both legacy `service` (first) and full `services` array
         const [booking] = await Booking.create(
             [{
                 customer: req.user._id,
                 barber: barberId,
-                service: serviceId,
+                service: resolvedServiceIds[0],   // legacy compat: primary service
+                services: resolvedServiceIds,      // all selected services
+                service_names: serviceNames,       // human-readable snapshot
+                total_duration: totalDuration,
                 date: bookingDate,
                 time_slot,
                 service_type: serviceType,
@@ -203,9 +236,9 @@ export const createBooking = async (req, res) => {
                     type: 'Point',
                     coordinates: barberProfile?.location?.coordinates || [85.3240, 27.7172],
                 },
-                travel_charge: travelCharge,       // Store travel charge snapshot
-                distance_km: distanceKm,           // Store distance snapshot
-                total_price: totalPrice,           // Price includes travel charge
+                travel_charge: travelCharge,
+                distance_km: distanceKm,
+                total_price: totalPrice,
                 payment_status: 'pending',
                 status: 'pending',
             }],
@@ -245,6 +278,7 @@ export const createBooking = async (req, res) => {
             .populate('customer', 'username phone email')
             .populate('barber', 'username profile_image address email')
             .populate('service', 'name price duration_minutes')
+            .populate('services', 'name price duration_minutes')
             .sort({ createdAt: -1 });
 
         const io = req.app.get('io');
@@ -301,6 +335,7 @@ export const getMyBookings = async (req, res) => {
             .populate('customer', 'username email phone')
             .populate('barber', 'username email profile_image address')
             .populate('service', 'name duration_minutes price')
+            .populate('services', 'name duration_minutes price')
             .sort({ date: -1 })
             .lean();
 
@@ -363,9 +398,14 @@ export const updateBookingStatus = async (req, res) => {
         const oldStatus = booking.status;
         booking.status = status;
 
-        // Loyalty points on completion
+        // Loyalty points on completion — Awarded to BOTH Barber & Customer
         if (status === 'completed' && oldStatus !== 'completed') {
+            // Customer gets points
             await User.findByIdAndUpdate(booking.customer, {
+                $inc: { loyalty_points: 10 }
+            });
+            // Barber gets points
+            await User.findByIdAndUpdate(booking.barber, {
                 $inc: { loyalty_points: 10 }
             });
         }
@@ -470,6 +510,24 @@ export const updateBookingStatus = async (req, res) => {
                 barberProfile.earnings.balance += barberNetEarnings;
                 barberProfile.earnings.total_earned += barberNetEarnings;
                 await barberProfile.save();
+
+                // ✅ Add earnings directly to the global user wallet balance
+                const barberUser = await User.findById(booking.barber);
+                if (barberUser) {
+                    barberUser.wallet_balance = (barberUser.wallet_balance || 0) + barberNetEarnings;
+                    await barberUser.save();
+
+                    // ✅ Create a wallet transaction for the Barber
+                    await Transaction.create({
+                        user: booking.barber,
+                        type: 'credit',
+                        amount: barberNetEarnings,
+                        title: 'Booking Earnings',
+                        description: `Earnings for booking #${booking._id.toString().substring(0, 8)}`,
+                        status: 'completed',
+                        reference_id: booking._id.toString()
+                    });
+                }
 
                 // Check if commission already exists for this booking to prevent duplicates
                 const existingEarning = await PlatformEarning.findOne({ booking: booking._id });
@@ -651,7 +709,8 @@ export const cancelBooking = async (req, res) => {
         const populatedBooking = await Booking.findById(bookingId)
             .populate('customer', 'username phone email')
             .populate('barber', 'username profile_image address email')
-            .populate('service', 'name price');
+            .populate('service', 'name price')
+            .populate('services', 'name price');
 
         const io = req.app.get('io');
         if (populatedBooking) {

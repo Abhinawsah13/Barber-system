@@ -34,7 +34,7 @@ const CategoryButton = ({ title, emoji, selected, onPress }) => (
         ]}
     >
         {emoji ? <Text style={styles.categoryEmoji}>{emoji}</Text> : null}
-        <Text 
+        <Text
             style={[styles.categoryLabel, { color: selected ? '#ffffff' : '#222222' }]}
             numberOfLines={1}
             ellipsizeMode="tail"
@@ -48,7 +48,6 @@ export default function HomeScreen({ navigation }) {
     const { theme } = useTheme();
     const { t } = useLanguage();
     const [barbers, setBarbers] = useState([]);
-    // ... rest ...
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [searchText, setSearchText] = useState("");
@@ -128,32 +127,31 @@ export default function HomeScreen({ navigation }) {
     useEffect(() => {
         let socket;
         const setupSocket = async () => {
-             const userData = await getUserData();
-             if (userData?._id && userData?.user_type === 'customer') {
-                  socket = io(SOCKET_BASE_URL);
-                  socket.emit('join-user-room', { userId: userData._id, role: 'customer' });
+            const userData = await getUserData();
+            if (userData?._id && userData?.user_type === 'customer') {
+                socket = io(SOCKET_BASE_URL);
+                socket.emit('join-user-room', { userId: userData._id, role: 'customer' });
 
-                  socket.on('notification_received', (notification) => {
-                      if (notification?.message) {
-                          Alert.alert('🔔 Notification', notification.message);
-                      }
-                      // Refresh upcoming when a booking update notification arrives
-                      if (notification?.type === 'updated' || notification?.type === 'booked') {
-                          fetchUpcoming();
-                      }
-                  });
+                socket.on('notification_received', (notification) => {
+                    if (notification?.message) {
+                        Alert.alert('🔔 Notification', notification.message);
+                    }
+                    if (notification?.type === 'updated' || notification?.type === 'booked') {
+                        fetchUpcoming();
+                    }
+                });
 
-                  socket.on('booking-completed', (booking) => {
-                      navigation.navigate('RateBarber', {
-                          bookingId: booking._id,
-                          barberId: booking.barber?._id || booking.barber,
-                          barberName: booking.barber?.username || 'Barber',
-                          barberImage: booking.barber?.profile_image || null,
-                          serviceName: booking.service?.name || null,
-                          date: booking.date,
-                      });
-                  });
-             }
+                socket.on('booking-completed', (booking) => {
+                    navigation.navigate('RateBarber', {
+                        bookingId: booking._id,
+                        barberId: booking.barber?._id || booking.barber,
+                        barberName: booking.barber?.username || 'Barber',
+                        barberImage: booking.barber?.profile_image || null,
+                        serviceName: booking.service?.name || null,
+                        date: booking.date,
+                    });
+                });
+            }
         };
 
         const checkUserType = async () => {
@@ -175,7 +173,7 @@ export default function HomeScreen({ navigation }) {
                 socket.disconnect();
             }
         };
-    }, [t]); // Added t to dependencies to update greeting on language change
+    }, [t]);
 
     const onRefresh = () => {
         setRefreshing(true);
@@ -294,7 +292,7 @@ export default function HomeScreen({ navigation }) {
                     />
                 </View>
 
-                {/* ── Incomplete Profile Banner ── */}
+                {/* Incomplete Profile Banner */}
                 {profileMissing.length > 0 && (
                     <TouchableOpacity
                         style={styles.profileBanner}
@@ -311,7 +309,7 @@ export default function HomeScreen({ navigation }) {
                     </TouchableOpacity>
                 )}
 
-                {/* Categories Grid (Fixed) */}
+                {/* Categories */}
                 <View style={styles.categoryWrap}>
                     <CategoryButton
                         title={t('all_barbers')}
@@ -436,12 +434,13 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ height: 100 }} />
             </ScrollView>
 
-            <TouchableOpacity style={styles.fabBtn} onPress={() => navigation.navigate("AIChat")}>
-                <Text style={styles.fabIcon}>✨</Text>
-                <Text style={styles.fabText}>Ask AI</Text>
+            {/* Single FAB — opens ML Chatbot */}
+            <TouchableOpacity style={styles.fabBtn} onPress={() => navigation.navigate("Chatbot")}>
+                <Text style={styles.fabIcon}>🤖</Text>
+                <Text style={styles.fabText}>AI Chat</Text>
             </TouchableOpacity>
 
-        </SafeAreaView >
+        </SafeAreaView>
     );
 }
 
@@ -505,6 +504,14 @@ const styles = StyleSheet.create({
         borderRadius: 22.5,
         borderWidth: 2,
         borderColor: '#FFF',
+    },
+    logoContainer: {
+        width: 45,
+        height: 45,
+        borderRadius: 22.5,
+        backgroundColor: '#F3E5F5',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     searchContainer: {
         flexDirection: "row",
@@ -575,11 +582,11 @@ const styles = StyleSheet.create({
         color: '#333',
     },
     seeAll: {
-        color: '#9C27B0', // Purple
+        color: '#9C27B0',
         fontWeight: '600',
     },
     upcomingCard: {
-        backgroundColor: '#9C27B0', // Main Purple
+        backgroundColor: '#9C27B0',
         borderRadius: 20,
         padding: 20,
         marginBottom: 30,
@@ -662,10 +669,9 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         fontSize: 14,
     },
-    // Home Service Banner
     homeServiceBanner: {
         flexDirection: 'row',
-        backgroundColor: '#E1BEE7', // Light Purple
+        backgroundColor: '#E1BEE7',
         borderRadius: 16,
         padding: 20,
         alignItems: 'center',
@@ -695,7 +701,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    // Barber Card
     card: {
         width: 250,
         backgroundColor: '#FFF',
@@ -738,7 +743,7 @@ const styles = StyleSheet.create({
     },
     heartBtn: {
         position: 'absolute',
-        bottom: 95, // Position relative to image/content split
+        bottom: 95,
         right: 15,
         width: 36,
         height: 36,
@@ -786,7 +791,7 @@ const styles = StyleSheet.create({
         position: 'absolute',
         bottom: 30,
         right: 20,
-        backgroundColor: '#1A237E', // Dark Blue/Purple
+        backgroundColor: '#1A237E',
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 12,
@@ -820,8 +825,6 @@ const styles = StyleSheet.create({
         borderColor: '#CCC',
         marginTop: 10,
     },
-
-    // ── Profile incomplete banner ──────────────────────────────────────
     profileBanner: {
         flexDirection: 'row',
         alignItems: 'center',

@@ -125,13 +125,25 @@ export default function BarberSelectionScreen({ navigation, route }) {
     // Fetch valid service categories
     const fetchCategories = useCallback(async () => {
         const list = await getServiceCategories();
-        setCategories(['All', ...list]);
+        const allCats = ['All', ...list];
+        setCategories(allCats);
+        return allCats;
     }, []);
 
     useEffect(() => {
-        fetchCategories();
-        fetchBarbers(null);
-    }, [fetchCategories, fetchBarbers]);
+        fetchCategories().then(cats => {
+            if (service?.name) {
+                // Find matching category (case-insensitive)
+                const match = cats.find(c => c.toLowerCase() === service.name.toLowerCase());
+                if (match) {
+                    setActiveCategory(match);
+                    fetchBarbers(match);
+                    return;
+                }
+            }
+            fetchBarbers(null);
+        });
+    }, [fetchCategories, fetchBarbers, service]);
 
     const handleCategoryFilter = (cat) => {
         setActiveCategory(cat);
@@ -267,10 +279,11 @@ const styles = StyleSheet.create({
     iconBtn: { padding: 6 },
     headerTitle: { fontSize: 18, fontWeight: '700', textAlign: 'center' },
     headerSubtitle: { fontSize: 12, textAlign: 'center', marginTop: 2 },
-    filterRow: { paddingHorizontal: 20, paddingBottom: 12, gap: 8 },
+    filterRow: { paddingHorizontal: 20, paddingBottom: 12, paddingTop: 5, gap: 8 },
     filterChip: {
         paddingHorizontal: 14, paddingVertical: 8,
-        borderRadius: 20, borderWidth: 1, marginRight: 8,
+        borderRadius: 24, borderWidth: 1, marginRight: 8,
+        alignSelf: 'center', minWidth: 60, alignItems: 'center'
     },
     filterText: { fontSize: 13 },
     listContent: { paddingHorizontal: 20, paddingBottom: 130 },

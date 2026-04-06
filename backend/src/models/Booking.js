@@ -14,7 +14,24 @@ const bookingSchema = new mongoose.Schema({
     service: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Service",
-        required: true
+        required: false  // optional — kept for backward compatibility with existing bookings
+    },
+    // ✅ MULTI-SERVICE: array of service references
+    services: [
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Service",
+        }
+    ],
+    // Snapshot of service names (so history is readable even if services are deleted later)
+    service_names: {
+        type: [String],
+        default: []
+    },
+    // Total duration in minutes across all selected services
+    total_duration: {
+        type: Number,
+        default: 0
     },
     date: {
         type: Date,

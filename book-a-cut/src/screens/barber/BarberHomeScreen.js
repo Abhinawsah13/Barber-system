@@ -9,7 +9,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageProvider";
 import { SOCKET_BASE_URL } from '../../config/server';
-import { getMyBookings, toggleBarberOnlineStatus, updateBookingStatus, getProfile, getBarberById, markBarberOnTheWay, getUnreadNotificationCount } from "../../services/api";
+import { getMyBookings, toggleBarberOnlineStatus, updateBookingStatus, getProfile, getBarberById, getMyBarberProfile, markBarberOnTheWay, getUnreadNotificationCount } from "../../services/api";
 import { getUserData } from "../../services/TokenManager";
 import { Ionicons } from '@expo/vector-icons';
 
@@ -67,14 +67,13 @@ export default function BarberHomeScreen({ navigation, route }) {
                 if (!userProfile?.phone) missing.push('phone number');
                 if (!userProfile?.profile_image) missing.push('profile photo');
 
-                if (userProfile?._id) {
-                    const bp = await getBarberById(userProfile._id);
-                    if (bp) {
-                        setSubscriptionPlan(bp.subscription_plan || 'basic');
-                        if (!bp.bio || bp.bio === 'Welcome to my barber profile!') missing.push('bio');
-                        if (!bp.location?.address) missing.push('salon address');
-                        if (!bp.services || bp.services.length === 0) missing.push('at least 1 service');
-                    }
+                // ✅ Use getMyBarberProfile() — server resolves via JWT, no ID needed
+                const bp = await getMyBarberProfile().catch(() => null);
+                if (bp) {
+                    setSubscriptionPlan(bp.subscription_plan || 'basic');
+                    if (!bp.bio || bp.bio === 'Welcome to my barber profile!') missing.push('bio');
+                    if (!bp.location?.address) missing.push('salon address');
+                    if (!bp.services || bp.services.length === 0) missing.push('at least 1 service');
                 }
 
                 setProfileMissing(missing);
@@ -194,7 +193,7 @@ export default function BarberHomeScreen({ navigation, route }) {
                 lng: location.coords.longitude
             });
         } catch (error) {
-            console.error("Failed to toggle online status", error);
+            if (!error?.message?.includes("Profile not found")) { console.error("Failed to toggle online status", error); }
         }
     };
 
@@ -323,7 +322,8 @@ export default function BarberHomeScreen({ navigation, route }) {
                     {[
                         { label: t('wallet'), emoji: '💰', screen: 'Wallet' },
                         { label: t('my_profile'), emoji: '👤', screen: 'BarberProfile' },
-                        { label: t('appointment'), emoji: '✂️', screen: 'BarberServices' },
+                        { label: t('my_services') || 'Services', emoji: '✂️', screen: 'BarberServices' },
+                        { label: t('appointment'), emoji: '📅', screen: 'Appointments' },
                         { label: t('premium'), emoji: '⭐', screen: 'Subscription' },
                         { label: t('settings'), emoji: '⚙️', screen: 'BarberSettings' },
                     ].map(action => (
@@ -575,12 +575,6 @@ export default function BarberHomeScreen({ navigation, route }) {
                     })
                 )}
 
-                <View style={styles.emptySlot}>
-                    <Text style={styles.emptyText}>Tap + to add a walk-in</Text>
-                    <TouchableOpacity style={styles.addBtn}>
-                        <Text style={styles.addBtnText}>+ Book</Text>
-                    </TouchableOpacity>
-                </View>
 
             </ScrollView>
         </SafeAreaView>

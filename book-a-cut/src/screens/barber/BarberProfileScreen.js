@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageProvider";
-import { getProfile, getBarberById, getBarberRating } from "../../services/api";
+import { getProfile, getBarberById, getMyBarberProfile, getBarberRating } from "../../services/api";
 import StarRating from "../../components/shared/StarRating";
 import { Ionicons } from '@expo/vector-icons';
 
@@ -32,8 +32,9 @@ export default function BarberProfileScreen({ navigation }) {
             if (!user?._id) return;
             setProfile(user);
 
+            // ✅ Use getMyBarberProfile — server resolves profile via JWT token
             const [barberData, rating] = await Promise.all([
-                getBarberById(user._id),
+                getMyBarberProfile(),
                 getBarberRating(user._id),
             ]);
 

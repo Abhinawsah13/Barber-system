@@ -34,7 +34,7 @@ import WalletScreen from '../screens/customer/WalletScreen';
 import CustomerSettingsScreen from '../screens/customer/CustomerSettingsScreen';
 import CalendarScreen from "../screens/customer/CalendarScreen";
 
-// Sprint 4 — New Booking Flow Screens
+// Sprint 4 - New Booking Flow Screens
 import ServiceBrowsingScreen from "../screens/customer/ServiceBrowsingScreen";
 import BarberSelectionScreen from "../screens/customer/BarberSelectionScreen";
 import DateTimePickerScreen from "../screens/customer/DateTimePickerScreen";
@@ -55,7 +55,7 @@ import BarberSettingsScreen from "../screens/barber/BarberSettingsScreen";
 import UserProfileScreen from "../screens/shared/UserProfileScreen";
 import NotificationsScreen from "../screens/shared/NotificationsScreen";
 import SettingsScreen from "../screens/shared/SettingsScreen";
-import AIChatScreen from '../screens/shared/AIChatScreen';
+import ChatbotScreen from '../screens/shared/ChatbotScreen';   // ← ADDED
 import EditProfileScreen from '../screens/shared/EditProfileScreen';
 import ChangePasswordScreen from '../screens/shared/ChangePasswordScreen';
 import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
@@ -66,6 +66,8 @@ import CommissionTransactionsScreen from '../screens/admin/CommissionTransaction
 // New Settings Modules
 import LanguageSettingsScreen from "../screens/shared/LanguageSettingsScreen";
 import HelpSupportScreen from "../screens/shared/HelpSupportScreen";
+import FAQScreen from "../screens/shared/FAQScreen";
+import ContactUsScreen from "../screens/shared/ContactUsScreen";
 import TermsPrivacyScreen from "../screens/shared/TermsPrivacyScreen";
 
 const Stack = createStackNavigator();
@@ -75,50 +77,14 @@ export default function AppNavigator() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    let socket;
-    const initializeAuthAndSocket = async () => {
-      await checkAuthStatus();
-      
-      const loggedIn = await isLoggedIn();
-      if (loggedIn) {
-        const userData = await getUserData();
-        if (userData && userData.user_type === 'customer' && userData._id) {
-          socket = io(SOCKET_BASE_URL);
-          socket.emit('join-user-room', userData._id);
-          
-          socket.on('booking-completed', (booking) => {
-            if (navigationRef.isReady()) {
-               navigationRef.navigate('RateBarber', {
-                   bookingId: booking._id,
-                   barberId: booking.barber?._id || booking.barber,
-                   barberName: booking.barber?.username || 'Barber',
-                   barberImage: booking.barber?.profile_image || null,
-                   serviceName: booking.service?.name || null,
-                   date: booking.date,
-               });
-            }
-          });
-        }
-      }
-    };
-    
-    initializeAuthAndSocket();
-    
-    return () => {
-      if (socket) {
-        socket.off('booking-completed');
-        socket.disconnect();
-      }
-    };
+    checkAuthStatus();
   }, []);
 
   const checkAuthStatus = async () => {
     try {
-      // Check if user is logged in
       const loggedIn = await isLoggedIn();
 
       if (loggedIn) {
-        // Get user data to determine which home screen to show
         const userData = await getUserData();
 
         if (userData && userData.user_type === 'barber') {
@@ -129,7 +95,6 @@ export default function AppNavigator() {
           setInitialRoute('Home');
         }
       } else {
-        // Check if user has seen onboarding
         const hasSeenOnboarding = await AsyncStorage.getItem('hasSeenOnboarding');
 
         if (hasSeenOnboarding) {
@@ -146,7 +111,6 @@ export default function AppNavigator() {
     }
   };
 
-  // Show loading screen while checking auth status
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF8F0' }}>
@@ -171,10 +135,11 @@ export default function AppNavigator() {
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="BarberDetails" component={BarberDetailsScreen} />
         <Stack.Screen name="BookingScreen" component={BookingScreen} />
-        {/* 'Booking' is an alias for 'BookingScreen' — keeps old navigation calls working */}
+        {/* 'Booking' is an alias for 'BookingScreen' - keeps old navigation calls working */}
         <Stack.Screen name="Booking" component={BookingScreen} />
         <Stack.Screen name="UserProfile" component={UserProfileScreen} />
         <Stack.Screen name="MyBookings" component={MyBookingsScreen} />
+        <Stack.Screen name="Appointments" component={MyBookingsScreen} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="ForgetPassword" component={ForgetPasswordscreen} />
@@ -182,7 +147,7 @@ export default function AppNavigator() {
         <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
         <Stack.Screen name="VerificationPending" component={VerificationPendingScreen} />
         <Stack.Screen name="HomeServices" component={HomeServicesScreen} />
-        <Stack.Screen name="AIChat" component={AIChatScreen} />
+        <Stack.Screen name="Chatbot" component={ChatbotScreen} />
         <Stack.Screen name="Wallet" component={WalletScreen} />
 
         {/* Barber Screens */}
@@ -197,7 +162,7 @@ export default function AppNavigator() {
         <Stack.Screen name="CustomerSettings" component={CustomerSettingsScreen} />
         <Stack.Screen name="Calendar" component={CalendarScreen} />
 
-        {/* Sprint 4 — New Booking Flow */}
+        {/* Sprint 4 - New Booking Flow */}
         <Stack.Screen name="ServiceBrowsing" component={ServiceBrowsingScreen} />
         <Stack.Screen name="BarberSelection" component={BarberSelectionScreen} />
         <Stack.Screen name="DateTimePicker" component={DateTimePickerScreen} />
@@ -217,6 +182,8 @@ export default function AppNavigator() {
         {/* New Settings Modules */}
         <Stack.Screen name="LanguageSettings" component={LanguageSettingsScreen} />
         <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
+        <Stack.Screen name="FAQ" component={FAQScreen} />
+        <Stack.Screen name="ContactUs" component={ContactUsScreen} />
         <Stack.Screen name="TermsPrivacy" component={TermsPrivacyScreen} />
       </Stack.Navigator>
     </NavigationContainer>
