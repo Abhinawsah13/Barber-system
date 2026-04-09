@@ -124,13 +124,13 @@ export default function BarberDetailsScreen({ navigation, route }) {
                 // ✅ DEBUG: log location data to confirm field names
                 console.log('Barber location data:', JSON.stringify(data?.location));
                 setBarberData(data);
-                
+
                 const fetchedServices = data.offeredServices || [];
                 setServices(fetchedServices);
 
                 // ✅ Auto-select real service if we only got a mock category name from Chatbot/Selection screen
                 if (route.params?.service && !route.params?.service?._id) {
-                    const match = fetchedServices.find(s => 
+                    const match = fetchedServices.find(s =>
                         s.name.toLowerCase() === route.params.service.name?.toLowerCase() &&
                         s.isActive !== false
                     );
@@ -230,9 +230,9 @@ export default function BarberDetailsScreen({ navigation, route }) {
                                         || barberData?.location?.area
                                         || barberData?.location?.city
                                         ? `${barberData?.location?.serviceArea
-                                            || barberData?.location?.service_area
-                                            || barberData?.location?.area
-                                            || barberData?.location?.city} & nearby`
+                                        || barberData?.location?.service_area
+                                        || barberData?.location?.area
+                                        || barberData?.location?.city} & nearby`
                                         : 'Service area not specified'}
                                 </Text>
                             </View>
@@ -378,13 +378,13 @@ export default function BarberDetailsScreen({ navigation, route }) {
                     {[...Array(14)].map((_, i) => {
                         const d = new Date();
                         d.setDate(d.getDate() + i);
-                        
+
                         // ✅ FIX: Use local date components to avoid timezone shifts (e.g. 31st becomes 31st, not 30th)
                         const year = d.getFullYear();
                         const month = String(d.getMonth() + 1).padStart(2, '0');
                         const dayNum = String(d.getDate()).padStart(2, '0');
                         const dateStr = `${year}-${month}-${dayNum}`;
-                        
+
                         const isSelected = selectedDate === dateStr;
                         const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                         return (
@@ -419,7 +419,7 @@ export default function BarberDetailsScreen({ navigation, route }) {
                         availableSlots.map((slot, i) => {
                             const isSelected = selectedSlot?.iso === slot.iso;
                             const isAvailable = slot.available !== false;
-                            
+
                             return (
                                 <TouchableOpacity
                                     key={i}
@@ -432,7 +432,7 @@ export default function BarberDetailsScreen({ navigation, route }) {
                                     }}
                                     style={[
                                         styles.slot,
-                                        { 
+                                        {
                                             borderColor: isSelected ? theme.primary : theme.border,
                                             backgroundColor: isSelected ? theme.primary : (!isAvailable ? theme.border + '30' : 'transparent'),
                                             opacity: isAvailable ? 1 : 0.6
@@ -441,7 +441,7 @@ export default function BarberDetailsScreen({ navigation, route }) {
                                 >
                                     <Text style={[
                                         styles.slotText,
-                                        { 
+                                        {
                                             color: isSelected ? '#FFF' : (isAvailable ? theme.text : theme.textMuted),
                                             textAlign: 'center',
                                             fontSize: 10
@@ -608,7 +608,7 @@ export default function BarberDetailsScreen({ navigation, route }) {
                 <View style={styles.profileOverlap}>
                     <View style={styles.avatarWrap}>
                         <Image
-                            source={image ? { uri: image } : require('../../../assets/barber.png')}
+                            source={image ? { uri: image } : require('../../../assets/logo.png')}
                             style={styles.avatar}
                         />
                     </View>

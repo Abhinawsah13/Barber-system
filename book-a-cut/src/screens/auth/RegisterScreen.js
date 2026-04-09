@@ -12,7 +12,8 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
-  Modal
+  Modal,
+  Image
 } from "react-native";
 import { registerUser, verifyEmail, resendOtp } from "../../services/api";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -199,11 +200,18 @@ export default function RegisterScreen({ navigation, route }) {
         >
           {/* Header */}
           <View style={styles.header}>
+            {role === 'barber' && (
+              <Image
+                source={require("../../../assets/barber.png")}
+                style={styles.headerImage}
+                resizeMode="contain"
+              />
+            )}
             <Text style={[styles.title, { color: theme.text }]}>
-              Create Account
+              {role === 'barber' ? 'Barber Registration' : 'Create Account'}
             </Text>
             <Text style={[styles.subtitle, { color: theme.textLight }]}>
-              Join us to book your next cut.
+              {role === 'barber' ? 'Join our platform to grow your business' : 'Join us to book your next cut.'}
             </Text>
           </View>
 
@@ -578,6 +586,12 @@ const styles = StyleSheet.create({
   header: {
     alignItems: "center",
     marginBottom: 30,
+  },
+  headerImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: 15,
   },
   title: {
     fontSize: 28,

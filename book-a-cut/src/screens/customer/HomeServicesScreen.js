@@ -206,7 +206,7 @@ export default function HomeServicesScreen({ navigation, route }) {
                 <View style={styles.cardHeader}>
                     <View style={styles.imageContainer}>
                         <Image
-                            source={item.image ? { uri: item.image } : require('../../../assets/barber.png')}
+                            source={item.image ? { uri: item.image } : require('../../../assets/logo.png')}
                             style={[styles.avatar, { backgroundColor: theme.inputBg }]}
                         />
                         <View style={[

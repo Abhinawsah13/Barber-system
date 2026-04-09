@@ -6,7 +6,8 @@ import {
   StyleSheet,
   SafeAreaView,
   Animated,
-  Dimensions
+  Dimensions,
+  Image, // Added Image
 } from "react-native";
 import { THEME } from "../../theme/theme";
 
@@ -68,6 +69,7 @@ export default function RoleSelectionScreen({ navigation }) {
     },
     {
       id: "barber",
+      image: require("../../../assets/barber.png"),
       emoji: "💈",
       title: "Barber",
       description: "Provide services & earn money",
@@ -80,6 +82,11 @@ export default function RoleSelectionScreen({ navigation }) {
     <SafeAreaView style={[styles.container, { backgroundColor: THEME.background }]}>
       {/* Header */}
       <View style={styles.header}>
+        <Image
+          source={require("../../../assets/logo.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
         <Text style={[styles.title, { color: THEME.text }]}>
           Welcome to Barber Booking ✂️
         </Text>
@@ -104,14 +111,22 @@ export default function RoleSelectionScreen({ navigation }) {
             onPress={() => handleRoleSelect(role.id)}
             activeOpacity={0.7}
           >
-            {/* Role Emoji */}
+            {/* Role Emoji or Image */}
             <View style={[
               styles.emojiContainer,
               { backgroundColor: role.color + '20' }
             ]}>
-              <Text style={[styles.emoji, { color: role.color }]}>
-                {role.emoji}
-              </Text>
+              {role.image ? (
+                <Image
+                  source={role.image}
+                  style={styles.roleImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={[styles.emoji, { color: role.color }]}>
+                  {role.emoji}
+                </Text>
+              )}
             </View>
 
             {/* Role Title */}
@@ -204,8 +219,13 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginTop: 40,
-    marginBottom: 30,
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  logo: {
+    width: 100,
+    height: 100,
+    marginBottom: 10,
   },
   title: {
     fontSize: 24,
@@ -246,6 +266,11 @@ const styles = StyleSheet.create({
   },
   emoji: {
     fontSize: 35,
+  },
+  roleImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   roleTitle: {
     fontSize: 22,

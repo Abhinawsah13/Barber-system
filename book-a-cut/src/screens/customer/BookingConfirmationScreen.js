@@ -87,7 +87,7 @@ export default function BookingConfirmationScreen({ navigation, route }) {
     const totalPrice = servicesPrice + travelCharge;
 
     const barberProfileImage = barber?.user?.profile_image || null;
-    const finalImageSource = barberProfileImage ? { uri: barberProfileImage } : require('../../../assets/barber.png');
+    const finalImageSource = barberProfileImage ? { uri: barberProfileImage } : require('../../../assets/logo.png');
 
     // ✅ FIX 1: Validate booking time is in the future
     const isTimeValid = () => {
@@ -313,7 +313,7 @@ export default function BookingConfirmationScreen({ navigation, route }) {
                         </View>
                         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.slotBookedBannerBtn}>
                             <Text style={styles.slotBookedBannerBtnText}>Change
-Time</Text>
+                                Time</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -487,7 +487,7 @@ Time</Text>
                 <Text style={{ textAlign: 'center', color: theme.textLight, marginBottom: 10, fontSize: 13, fontWeight: '600' }}>
                     Choose Payment Method
                 </Text>
-                
+
                 <View style={{ flexDirection: 'row' }}>
                     <TouchableOpacity
                         style={[styles.payBtn, { backgroundColor: '#5C2D91', opacity: (paymentLoading || loading || timeWarning) ? 0.6 : 1 }]}
@@ -502,7 +502,7 @@ Time</Text>
                 {/* Cash/After-service option */}
                 <TouchableOpacity
                     style={[
-                        styles.cashBtn, 
+                        styles.cashBtn,
                         { borderColor: theme.border, opacity: (paymentLoading || loading || timeWarning) ? 0.6 : 1 }
                     ]}
                     onPress={handleConfirm}

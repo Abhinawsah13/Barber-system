@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import {
-
   View,
   Text,
   TextInput,
@@ -11,7 +10,8 @@ import {
   ScrollView,
   Alert,
   Modal,
-  ActivityIndicator
+  ActivityIndicator,
+  Image, // Added Image
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { loginUser, verifyEmail, resendOtp } from "../../services/api";
@@ -20,6 +20,7 @@ import { setToken } from "../../services/TokenManager";
 
 export default function LoginScreen({ navigation }) {
   const { theme } = useTheme();
+  // ... rest of the code remains same
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -170,9 +171,11 @@ export default function LoginScreen({ navigation }) {
 
           {/* Header */}
           <View style={styles.header}>
-            <View style={[styles.iconCircle, { backgroundColor: theme.primary + "30" }]}>
-              <Text style={[styles.icon, { color: theme.primary }]}>🔒</Text>
-            </View>
+            <Image
+              source={require("../../../assets/logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
             <Text style={[styles.title, { color: theme.text }]}>Welcome Back</Text>
             <Text style={[styles.subtitle, { color: theme.textLight }]}>
               Sign in to continue
@@ -404,21 +407,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 30,
   },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
-    shadowColor: "rgba(0, 0, 0, 0.1)",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  icon: {
-    fontSize: 40,
+  logo: {
+    width: 120,
+    height: 120,
+    marginBottom: 10,
   },
   title: {
     fontSize: 28,

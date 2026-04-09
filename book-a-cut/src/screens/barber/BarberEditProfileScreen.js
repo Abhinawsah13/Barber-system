@@ -396,9 +396,10 @@ export default function BarberEditProfileScreen({ navigation }) {
                             {profileImage ? (
                                 <Image source={{ uri: profileImage }} style={styles.photo} />
                             ) : (
-                                <View style={[styles.photo, styles.photoPlaceholder, { backgroundColor: theme.primary + '20' }]}>
-                                    <Ionicons name="camera" size={30} color={theme.primary} />
-                                </View>
+                                <Image 
+                                    source={require("../../../assets/barber.png")} 
+                                    style={styles.photo} 
+                                />
                             )}
                             <View style={[styles.editBadge, { backgroundColor: theme.primary }]}>
                                 <Ionicons name="pencil" size={14} color="#FFF" />

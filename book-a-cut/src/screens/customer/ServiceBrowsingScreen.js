@@ -11,13 +11,13 @@ const PURPLE = '#7B2FBE';
 const CREAM = '#F5F0E8';
 
 const getServiceImage = (serviceName) => {
-    if (!serviceName) return require('../../../assets/barber.png');
+    if (!serviceName) return require('../../../assets/logo.png');
     const name = String(serviceName).toLowerCase().replace(/\s+/g, '_');
     if (name.includes('beard') || name.includes('bread')) return require('../../../assets/beard_trim.jpg');
     if (name.includes('hair')) return require('../../../assets/hair_cut.jpg');
     if (name.includes('facial')) return require('../../../assets/facial.jpg');
     if (name.includes('shave')) return require('../../../assets/shave.jpg');
-    return require('../../../assets/barber.png');
+    return require('../../../assets/logo.png');
 };
 
 const CATEGORY_META = {
@@ -44,7 +44,7 @@ const CategoryButton = ({ title, emoji, selected, onPress }) => (
         ]}
     >
         <Text style={styles.categoryEmoji}>{emoji}</Text>
-        <Text 
+        <Text
             style={[styles.categoryLabel, { color: selected ? '#ffffff' : '#222222' }]}
             numberOfLines={1}
             ellipsizeMode="tail"
@@ -101,7 +101,7 @@ function ServiceCard({ item, onPress, theme }) {
                             <Image
                                 source={item.barber.profile_image
                                     ? { uri: item.barber.profile_image }
-                                    : require('../../../assets/barber.png')}
+                                    : require('../../../assets/logo.png')}
                                 style={styles.barberAvatar}
                             />
                             <Text style={[styles.barberName, { color: theme.textMuted }]} numberOfLines={1}>

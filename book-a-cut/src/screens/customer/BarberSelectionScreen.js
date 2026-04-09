@@ -35,9 +35,8 @@ const BarberCard = ({ item, selected, onSelect, theme }) => {
                 selected && { borderColor: theme.primary, borderWidth: 2 },
             ]}
         >
-            {/* Profile image */}
             <Image
-                source={profileImage ? { uri: profileImage } : require('../../../assets/barber.png')}
+                source={profileImage ? { uri: profileImage } : require('../../../assets/logo.png')}
                 style={styles.avatar}
             />
 
@@ -247,7 +246,7 @@ export default function BarberSelectionScreen({ navigation, route }) {
                     <Image
                         source={selected.user?.profile_image
                             ? { uri: selected.user.profile_image }
-                            : require('../../../assets/barber.png')}
+                            : require('../../../assets/logo.png')}
                         style={styles.bottomAvatar}
                     />
                     <View style={{ flex: 1, marginHorizontal: 12 }}>

@@ -289,7 +289,7 @@ export default function RateBarberScreen({ navigation, route }) {
                     {/* barber info strip — data comes from booking */}
                     <View style={[styles.barberStrip, { backgroundColor: '#fff' }]}>
                         <Image
-                            source={barberImage ? { uri: barberImage } : require('../../../assets/barber.png')}
+                            source={barberImage ? { uri: barberImage } : require('../../../assets/logo.png')}
                             style={styles.avatar}
                         />
                         <View style={{ flex: 1 }}>

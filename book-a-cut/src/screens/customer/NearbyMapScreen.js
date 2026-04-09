@@ -411,7 +411,7 @@ export default function NearbyMapScreen({ navigation, route }) {
                             source={
                                 selectedBarber._resolvedImage || selectedBarber.profileImage || selectedBarber.user?.profile_image
                                     ? { uri: selectedBarber._resolvedImage || selectedBarber.profileImage || selectedBarber.user?.profile_image }
-                                    : require('../../../assets/barber.png')
+                                    : require('../../../assets/logo.png')
                             }
                             style={styles.cardAvatar}
                         />

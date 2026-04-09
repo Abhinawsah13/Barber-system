@@ -79,11 +79,10 @@ export default function BarberProfileScreen({ navigation }) {
                         {profile?.profile_image ? (
                             <Image source={{ uri: profile.profile_image }} style={styles.photo} />
                         ) : (
-                            <View style={[styles.photo, styles.photoPlaceholder, { backgroundColor: theme.primary + '20' }]}>
-                                <Text style={{ fontSize: 40, color: theme.primary }}>
-                                    {profile?.username?.charAt(0).toUpperCase()}
-                                </Text>
-                            </View>
+                            <Image 
+                                source={require("../../../assets/barber.png")} 
+                                style={styles.photo} 
+                            />
                         )}
                         {barber?.is_verified_barber && (
                             <View style={styles.verifiedBadge}>

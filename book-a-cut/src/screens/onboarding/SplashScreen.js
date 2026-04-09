@@ -4,7 +4,8 @@ import {
   Text,
   StyleSheet,
   Dimensions,
-  Animated, // Use Animated from react-native
+  Animated,
+  Image, // Added Image
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { THEME } from "../../theme/theme";
@@ -47,10 +48,18 @@ export default function SplashScreen({ navigation }) {
           },
         ]}
       >
-        {/* Warm colored icon circle */}
-        <View style={[styles.logoContainer, { backgroundColor: THEME.primary + "30" }]}>
-          <Text style={[styles.logoIcon, { color: THEME.primary }]}>✂️</Text>
-        </View>
+        {/* Logo Image */}
+        <Animated.Image
+          source={require("../../../assets/logo.png")}
+          style={[
+            styles.logoImage,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            }
+          ]}
+          resizeMode="contain"
+        />
 
         <Text style={[styles.title, { color: THEME.text }]}>BOOK-A-CUT</Text>
         <Text style={[styles.subtitle, { color: THEME.textLight }]}>Booking</Text>
@@ -84,16 +93,10 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
-  logoContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 30,
-  },
-  logoIcon: {
-    fontSize: 60,
+  logoImage: {
+    width: 180,
+    height: 180,
+    marginBottom: 20,
   },
   title: {
     fontSize: 36,

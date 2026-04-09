@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image, // Added Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
@@ -111,6 +112,11 @@ export default function ForgotPasswordScreen({ navigation }) {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
             <View style={styles.contentContainer}>
+              <Image
+                source={require("../../../assets/logo.png")}
+                style={styles.logo}
+                resizeMode="contain"
+              />
               <Text style={[styles.title, { color: theme.text }]}>Forgot Password?</Text>
               <Text style={[styles.subtitle, { color: theme.textLight }]}>Enter email to reset</Text>
 
@@ -261,7 +267,12 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 30,
     alignItems: 'center',
-    paddingTop: 50
+    paddingTop: 30
+  },
+  logo: {
+    width: 100,
+    height: 100,
+    marginBottom: 10,
   },
   title: {
     fontSize: 28,

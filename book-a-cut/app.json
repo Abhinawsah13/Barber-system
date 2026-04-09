@@ -4,11 +4,11 @@
     "slug": "book-a-cut",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/barber.png",
+    "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/barber.png",
+      "image": "./assets/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -17,14 +17,14 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/barber.png",
+        "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.bookacut.app"
     },
     "web": {
-      "favicon": "./assets/barber.png"
+      "favicon": "./assets/logo.png"
     }
   }
 }
